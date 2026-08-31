@@ -1,0 +1,40 @@
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Downloaded models cache (rembg stores them in ~/.rembg/models/<name>/;
+# ~/.u2net is the pre-2.0.80 layout, still read for backwards compatibility)
+.rembg/
+.u2net/
+*.onnx
+
+# Landing page from the upstream project. Kept locally as a reference for a
+# future site of our own, but not published with this fork.
+site/
+
+# Node (npm launcher)
+node_modules/
+package-lock.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.claude/
+
+# Local outputs / scratch
+*_nobg.png
+/tmp/
+
+# others
+CLAUDE.md

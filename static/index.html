@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Kirinuki - remove backgrounds locally</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png" />
+<link rel="icon" type="image/png" sizes="1024x1024" href="/static/logo.png" />
+<link rel="apple-touch-icon" href="/static/logo.png" />
+<link rel="stylesheet" href="/static/css/app.css" />
+<script>
+  try {
+    var t = localStorage.getItem("rmbg-theme");
+    if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+  } catch (e) { /* private mode: fall back to the system theme */ }
+</script>
+<script defer src="/static/js/app.js"></script>
+</head>
+<body>
+
+<header class="app-header">
+  <h1>kiri<span>.</span>nuki <small>background remover</small></h1>
+  <nav class="nav">
+    <button class="nav-tab active" data-view="editor">Remove background</button>
+    <button class="nav-tab" data-view="models">Models</button>
+  </nav>
+  <div class="head-right">
+    <div class="theme-switch" role="group" aria-label="Colour theme">
+      <button type="button" class="theme-opt" data-theme-choice="light" title="Light theme" aria-label="Light theme">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </button>
+      <button type="button" class="theme-opt" data-theme-choice="system" title="Match system" aria-label="Match system theme">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+      </button>
+      <button type="button" class="theme-opt" data-theme-choice="dark" title="Dark theme" aria-label="Dark theme">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+    </div>
+    <div class="status"><span class="dot" id="dot"></span><span id="status-text">starting…</span></div>
+  </div>
+</header>
+
+<div class="app-main">
+
+<div class="view" id="view-editor">
+<div class="app-body">
+
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <span class="ttl">Sessions <span class="leg" id="sess-leg"></span></span>
+      <button class="btn-new" id="new-session">New session</button>
+    </div>
+    <div class="sidebar-list" id="sidebar-list">
+      <div class="sidebar-empty" id="sidebar-empty">No images yet.<br>Drop some to start.</div>
+    </div>
+    <div class="sidebar-foot" id="storage-foot" hidden></div>
+  </aside>
+
+  <div class="workarea">
+    <div class="fixed-top">
+      <div class="toprow">
+        <div class="dd" id="model-dd">
+          <button class="dd-trigger" id="model-trigger">
+            <span class="t-main"><span class="t-title" id="t-title">…</span><span class="t-tag" id="t-tag"></span></span>
+            <span class="chev"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span>
+          </button>
+          <div class="dd-menu" id="model-menu" hidden></div>
+        </div>
+        <div class="btns">
+          <button id="download-all" disabled>Download all</button>
+          <select id="dl-format" title="Download format"><option value="png">PNG</option><option value="webp">WEBP</option><option value="jpg">JPG</option></select>
+          <label class="mini-toggle" title="Pack every result into a single ZIP instead of saving them one by one"><input type="checkbox" id="dl-zip" checked /> ZIP</label>
+          <button id="close-all" disabled>Close all</button>
+          <span class="queue-info" id="queue-info"></span>
+        </div>
+      </div>
+
+      <div class="drop-zone" id="drop">
+        <p class="big">Drag images here</p>
+        <p class="hint">or click to select &middot; several at once &middot; paste with Cmd/Ctrl+V (PNG, JPG, WEBP &middot; max 30 MB each)</p>
+        <input type="file" id="file" accept="image/*" multiple style="display:none" />
+      </div>
+
+      <div class="bg-picker" id="global-bg"><span class="lbl">Default result background:</span></div>
+
+      <details>
+        <summary>Advanced options (edge refinement)</summary>
+        <div class="row">
+          <label class="toggle"><input type="checkbox" id="vm-enabled" /> ViTMatte edge refinement (best edges, downloads ~114 MB once)</label>
+          <span class="opt-warn" id="mem-warn" hidden></span>
+          <label class="toggle"><input type="checkbox" id="dc-enabled" /> Remove background colour from the edge (no halo)</label>
+          <label class="toggle"><input type="checkbox" id="pp-enabled" /> Clean up mask speckle</label>
+        </div>
+        <p class="opt-note">ViTMatte turns the hard mask into a real alpha channel with a network. Better on fine detail than the classic alpha matting below, and it cannot fail to converge. Both do the same job, so only one can be on at a time. It roughly triples peak memory, so on a machine with little RAM free it can be refused - the server checks before starting.</p>
+        <div class="row">
+          <label class="toggle"><input type="checkbox" id="am-enabled" /> Classic alpha matting (better for hair / fine edges, slower)</label>
+          <label>FG threshold <input type="number" id="am-fg" value="240" min="0" max="255" /></label>
+          <label>BG threshold <input type="number" id="am-bg" value="10" min="0" max="255" /></label>
+          <label>Erode <input type="number" id="am-erode" value="10" min="0" max="50" /></label>
+        </div>
+        <p class="opt-note">Lower the erode value (2-5) for parts with thin structures or narrow gaps: the default of 10 eats fine detail before refining.</p>
+        <div class="row">
+          <label class="toggle"><input type="checkbox" id="trim-enabled" /> Trim to content on export (remove the empty margin)</label>
+          <label>Padding <input type="number" id="trim-pad" value="0" min="0" max="200" /></label>
+        </div>
+        <p class="opt-note">Crops each exported image to the subject's bounding box, which is what most product catalogues expect. Padding keeps a margin of that many pixels around it. Applies to downloads only - the result on screen is untouched.</p>
+        <div class="row">
+          <label class="toggle"><input type="checkbox" id="srvbg-enabled" /> Apply the background on the server (keeps EXIF, colour profile and DPI)</label>
+        </div>
+        <p class="opt-note">Normally the background is painted in the browser, which rebuilds the image and loses its metadata. Applying it here bakes it in during processing instead, so a white catalogue background keeps the camera data. The result arrives already flattened, so it is no longer transparent.</p>
+        <p class="opt-note" id="meta-note"></p>
+      </details>
+    </div>
+
+    <div class="results" id="results">
+      <div class="results-empty" id="results-empty">
+        <img class="empty-art" id="empty-art" src="/static/empty.svg" alt="" onerror="this.style.display='none'" />
+        <div class="empty-text" id="empty-text">Processed images will appear here.</div>
+      </div>
+    </div>
+  </div>
+</div>
+</div><!-- /view-editor -->
+
+<div class="view" id="view-models" hidden>
+  <div class="models-page">
+    <div class="inner">
+      <h2>Models</h2>
+      <p class="lead">Every model removes backgrounds, but they trade off speed and quality differently. You can pre-download any of them here; the one you use is downloaded automatically the first time.</p>
+      <div id="models-list"></div>
+      <p class="note">Times are rough per-image figures on Apple Silicon using CPU execution. Models are cached locally after the first download and then run fully offline.</p>
+    </div>
+  </div>
+</div><!-- /view-models -->
+
+</div><!-- /app-main -->
+
+<footer class="app-footer">
+  <span class="ver">kirinuki <b id="ver"></b></span>
+  <span class="right">
+    <span class="by">&copy; <b>Akemi201</b> &middot; fork of <a class="src" href="https://github.com/tecnomanu/remove-background-local" target="_blank" rel="noopener">tecno.manu</a></span>
+    <a class="ext-link" href="https://github.com/AkemiKami201" target="_blank" rel="noopener">
+      <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </span>
+</footer>
+
+<!-- Model comparison -->
+<div class="cmp-back" id="cmp-back" hidden>
+  <div class="cmp-dialog" role="dialog" aria-modal="true" aria-labelledby="cmp-title">
+    <div class="cmp-head">
+      <div>
+        <h2 id="cmp-title">Compare models</h2>
+        <p class="cmp-sub" id="cmp-sub"></p>
+      </div>
+      <button type="button" class="v-btn" id="cmp-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="cmp-list" id="cmp-list"></div>
+    <p class="cmp-note" id="cmp-note"></p>
+    <div class="cmp-foot">
+      <span class="cmp-est" id="cmp-est"></span>
+      <div class="grp">
+        <button type="button" id="cmp-cancel">Cancel</button>
+        <button type="button" class="primary" id="cmp-run">Run comparison</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Full-size viewer -->
+<div class="viewer" id="viewer" hidden>
+  <div class="viewer-bar">
+    <div class="v-left">
+      <span class="v-name" id="v-name"></span>
+      <span class="v-meta" id="v-meta"></span>
+    </div>
+    <div class="v-modes" role="group" aria-label="Compare mode">
+      <button type="button" class="v-mode" data-mode="result">Result</button>
+      <button type="button" class="v-mode" data-mode="split">Split</button>
+      <button type="button" class="v-mode" data-mode="side">Side by side</button>
+    </div>
+    <div class="v-right">
+      <div class="v-bgs" id="v-bgs" title="Backdrop"></div>
+      <span class="v-zoom" id="v-zoom">100%</span>
+      <button type="button" class="v-btn" id="v-zoom-out" title="Zoom out" aria-label="Zoom out">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+      <button type="button" class="v-btn" id="v-zoom-in" title="Zoom in" aria-label="Zoom in">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+      <button type="button" class="v-btn" id="v-fit" title="Fit to window">Fit</button>
+      <button type="button" class="v-btn" id="v-close" title="Close (Esc)" aria-label="Close viewer">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="viewer-stage" id="v-stage">
+    <div class="v-pane" id="v-pane">
+      <div class="v-layer v-orig" id="v-orig"><img id="v-orig-img" alt="Original" /></div>
+      <div class="v-layer v-out" id="v-out"><img id="v-out-img" alt="Background removed" /></div>
+      <div class="v-handle" id="v-handle" hidden><span class="v-grip"></span></div>
+    </div>
+  </div>
+  <div class="viewer-foot">
+    <span class="v-hint" id="v-hint"></span>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="overlay" id="overlay">
+  <div class="install-box" id="install-box">
+    <div class="spinner"></div>
+    <h2 id="install-title">Setting up Kirinuki</h2>
+    <p id="install-msg">Downloading the AI model for the first time…</p>
+    <div class="progress"><span id="install-bar"></span></div>
+    <p class="sub" id="install-sub">This is a one-time download and is cached on your machine.</p>
+    <button class="primary" id="install-retry" style="display:none;">Retry</button>
+  </div>
+</div>
+
+
+</body>
+</html>

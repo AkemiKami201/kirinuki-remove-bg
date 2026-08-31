@@ -1,0 +1,24 @@
+# remove-bg-local dependencies
+# Requires Python >= 3.11 (rembg 2.0.80+ dropped 3.9 / 3.10).
+
+# Server
+# Capped below the next major: FastAPI has already deprecated the startup
+# hooks this used (now on `lifespan`), and a major bump is where the rest
+# would go. Raise the cap deliberately, with the tests green.
+fastapi>=0.110,<1
+uvicorn[standard]>=0.27,<1
+python-multipart>=0.0.9
+
+# Images
+Pillow>=10.0
+
+# Background removal (includes BiRefNet, ISNet, U2Net, BRIA RMBG-2.0).
+# 2.0.80 is the floor: it moved the model cache to ~/.rembg/models/<name>/ and
+# added ViTMatte edge refinement, both of which server.py relies on. Capped
+# below 3 so a future major cannot change those again without a code review.
+rembg>=2.0.80,<3
+
+# ONNX inference runtime (uses CoreML on Mac Apple Silicon).
+# Recent rembg versions moved this to an optional extra, so we add it
+# explicitly here. Do NOT use onnxruntime-gpu on Mac (CUDA only).
+onnxruntime>=1.16
