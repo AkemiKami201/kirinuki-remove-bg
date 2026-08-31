@@ -379,10 +379,14 @@ the cut-out in IndexedDB, roughly 700 MB for 40 photos of this size. The sidebar
 shows the total and warns as the quota fills; "New session" or deleting old
 sessions frees it.
 
-A model stays in memory for 10 minutes after its last use (~1.8 GB for a
-BiRefNet), so a batch does not reload it from disk each time. The **Models**
-page shows what is resident and offers **Free RAM** to drop it immediately.
-Change the timer with `RBL_MODEL_IDLE_TTL` (seconds).
+A model stays in memory for 30 minutes after its last use (~1.8 GB for a
+BiRefNet), so a batch does not reload it from disk each time. Reloading is not
+free: reading a BiRefNet's 930 MB back was measured at 5.0s on an SSD and is
+considerably worse on a mechanical drive, which is why the timer outlasts an
+ordinary pause. The **Models** page shows what is resident and offers
+**Free RAM** to drop it immediately. Change the timer with
+`RBL_MODEL_IDLE_TTL` (seconds); set it to 0 to keep models loaded until the
+server stops.
 
 If a run still would not fit, the server estimates the peak before starting and
 returns a clear error rather than letting the system swap itself to a standstill

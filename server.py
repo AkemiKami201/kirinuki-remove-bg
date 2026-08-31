@@ -281,7 +281,14 @@ PRESERVE_METADATA = os.environ.get("RBL_PRESERVE_METADATA", "1") == "1"
 
 # How long an idle (unused) model session stays in RAM before being evicted.
 # Set to 0 to disable the background evictor entirely.
-MODEL_IDLE_TTL = int(os.environ.get("RBL_MODEL_IDLE_TTL", "600"))
+#
+# Evicting is not free: reloading a BiRefNet model means reading ~930 MB back
+# from disk, which is a few seconds on an SSD but was measured near a minute on
+# a mechanical drive. Ten minutes was short enough that a normal pause between
+# batches paid that cost again, so the wait people blamed on the model was
+# really the model being re-read. Thirty minutes is long enough to sit through
+# a coffee break and still bounded, and the Models page can free one on demand.
+MODEL_IDLE_TTL = int(os.environ.get("RBL_MODEL_IDLE_TTL", "1800"))
 # How often the evictor wakes up to check for idle models.
 MODEL_EVICTOR_INTERVAL = int(os.environ.get("RBL_MODEL_EVICTOR_INTERVAL", "30"))
 
@@ -1083,6 +1090,14 @@ async def remove_background(
                 )
 
     t0 = time.time()
+
+    # A non-transient request means this is the model the user is working with,
+    # so pin it. Without this the pin only moved when the dropdown was clicked:
+    # process with anything else and the evictor reclaimed it mid-session, and
+    # the next image paid a full reload from disk for no reason.
+    if not transient:
+        global _PINNED_MODEL
+        _PINNED_MODEL = model
 
     # Loads/downloads the model if needed (in a worker thread).
     session = await ensure_session(model)

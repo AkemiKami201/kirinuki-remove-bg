@@ -241,7 +241,7 @@
   .side-meta { flex: 1 1 auto; min-width: 0; }
   .side-name { font-size: var(--fs-sm); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .side-sub { font-size: var(--fs-xs); color: var(--text-faint); margin-top: 1px; }
-  .side-sub.queued, .side-sub.processing, .side-sub.loading-model { color: var(--accent); }
+  .side-sub.queued, .side-sub.processing, .side-sub.loading-model, .side-sub.downloading-model { color: var(--accent); }
   .side-sub.error { color: var(--err); }
   .side-del { flex: 0 0 auto; background: none; border: none; color: var(--text-faint); cursor: pointer; padding: 2px var(--sp-1); border-radius: var(--r-sm); opacity: 0; transition: opacity 0.15s, color 0.15s; }
   .side-item:hover .side-del { opacity: 1; }
@@ -385,7 +385,7 @@
     border: 1px solid transparent; background: var(--panel-3);
     color: var(--text-dim); white-space: nowrap;
   }
-  .badge.loading-model { color: var(--warn); background: var(--warn-weak); }
+  .badge.loading-model, .badge.downloading-model { color: var(--warn); background: var(--warn-weak); }
   .badge.processing { color: var(--accent); background: var(--accent-weak); }
   .badge.done { color: var(--ok); background: var(--ok-weak); }
   .badge.error { color: var(--err); background: var(--err-weak); }

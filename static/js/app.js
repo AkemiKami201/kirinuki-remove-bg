@@ -417,7 +417,14 @@ async function pump() {
 async function runJob(job) {
   const t0 = performance.now();
   let st = await getStatus(job.model);
-  if (st.state !== "ready") { job.state = "loading-model"; renderAll(); setStatus(`downloading ${job.model}…`, true); await waitForModel(job.model); }
+  if (st.state !== "ready") {
+    // Already on disk means we are only reading it into RAM, which is a very
+    // different wait from a first-time download: say which one it is.
+    job.state = st.downloaded ? "loading-model" : "downloading-model";
+    renderAll();
+    setStatus(st.downloaded ? `loading ${job.model} into memory…` : `downloading ${job.model}…`, true);
+    await waitForModel(job.model);
+  }
   job.state = "processing"; renderAll(); setStatus("processing…", true);
   const fd = new FormData(); fd.append("image", job.file); fd.append("model", job.model);
   if (job.transient || job.model !== selectedModel) fd.append("transient", "true");
@@ -768,7 +775,7 @@ async function downloadAll(asZip) {
 $("download-all").addEventListener("click", () => downloadAll($("dl-zip").checked));
 
 //  Render
-const BADGE_TEXT = { queued: "Queued", "loading-model": "Downloading model…", processing: "Processing…", done: "Done", error: "Error" };
+const BADGE_TEXT = { queued: "Queued", "downloading-model": "Downloading model…", "loading-model": "Loading model…", processing: "Processing…", done: "Done", error: "Error" };
 function renderAll() { renderResults(); renderSidebar(); }
 
 function renderResults() {
@@ -781,7 +788,7 @@ function renderResults() {
   empty.style.display = visible.length ? "none" : "flex";
   $("empty-text").textContent = inView.length ? "All cards closed. Click an image in the sidebar to reopen it." : "Nothing here yet. Drop an image to remove its background.";
   const done = inView.filter(j => j.state === "done").length;
-  const pending = inView.filter(j => ["queued", "processing", "loading-model"].includes(j.state)).length;
+  const pending = inView.filter(j => ["queued", "processing", "loading-model", "downloading-model"].includes(j.state)).length;
   $("download-all").disabled = done === 0;
   const closeAll = $("close-all");
   closeAll.disabled = inView.length === 0;

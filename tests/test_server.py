@@ -1010,3 +1010,62 @@ def test_cli_declares_is_win_before_using_it():
     declared = cli.index("const IS_WIN")
     first_use = cli.index("IS_WIN ?")
     assert declared < first_use, "IS_WIN must be declared before its first use"
+
+
+def test_using_a_model_pins_it_against_the_evictor(monkeypatch):
+    """Processing with a model must protect it from the idle evictor.
+
+    Regression: the pin only moved when the dropdown was clicked, so a model
+    chosen any other way (a restored session, the default at startup, a
+    comparison the user kept working with) was evicted after the idle TTL and
+    the next image paid a full reload from disk.
+    """
+    import server
+
+    monkeypatch.setattr(server, "_SESSIONS", {"birefnet-general": object()})
+    monkeypatch.setattr(server, "_PINNED_MODEL", "u2net")
+    monkeypatch.setattr(server, "_LAST_USED", {"birefnet-general": 0.0})
+    monkeypatch.setattr(server, "MODEL_IDLE_TTL", 1)
+
+    # Before the fix: not pinned, so the sweep reclaims it.
+    assert server._evictor_sweep() == ["birefnet-general"]
+
+    # After a non-transient /remove pins it, the same sweep leaves it alone.
+    monkeypatch.setattr(server, "_SESSIONS", {"birefnet-general": object()})
+    monkeypatch.setattr(server, "_PINNED_MODEL", "birefnet-general")
+    monkeypatch.setattr(server, "_LAST_USED", {"birefnet-general": 0.0})
+    assert server._evictor_sweep() == []
+
+
+def test_remove_pins_the_model_it_was_given(client, monkeypatch):
+    """A plain /remove call moves the pin; a transient one does not."""
+    async def fake_ensure_session(model):
+        return object()
+
+    def fake_remove(img, session=None, **kwargs):
+        return img.convert("RGBA")
+
+    monkeypatch.setattr(server, "ensure_session", fake_ensure_session)
+    monkeypatch.setattr(server, "remove", fake_remove)
+    monkeypatch.setattr(server, "_PINNED_MODEL", "u2net")
+
+    client.post(
+        "/remove",
+        files={"image": ("a.png", png_bytes(), "image/png")},
+        data={"model": "u2netp"},
+    )
+    assert server._PINNED_MODEL == "u2netp"
+
+    client.post(
+        "/remove",
+        files={"image": ("a.png", png_bytes(), "image/png")},
+        data={"model": "silueta", "transient": "true"},
+    )
+    assert server._PINNED_MODEL == "u2netp", "a transient run must not steal the pin"
+
+
+def test_idle_ttl_survives_a_normal_pause():
+    """The TTL must outlast an ordinary break, since reloading costs seconds."""
+    import server
+
+    assert server.MODEL_IDLE_TTL >= 1800

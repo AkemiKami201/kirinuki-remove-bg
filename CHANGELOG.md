@@ -135,6 +135,19 @@ Everything below is relative to the upstream project it was forked from.
   speed (27.8s against 22.7s on four cores) and saved no memory: the peak comes
   from the network's activations, not from how many threads walk them. The
   thread count is left to onnxruntime again.
+- A model already on disk still had to be read back into RAM more often than
+  necessary, and the wait was labelled "Downloading model…" while it happened.
+  Two separate faults. The pinned model only changed when the dropdown was
+  clicked, so a model reached any other way was left unpinned and the idle
+  evictor reclaimed it; processing with it counts as using it now. And the idle
+  TTL was ten minutes, shorter than an ordinary pause between batches, so the
+  reload was paid repeatedly — measured 5.0s on an SSD and reported far worse on
+  a mechanical drive. The TTL is thirty minutes (`RBL_MODEL_IDLE_TTL`), and the
+  Models page can still free a model on demand.
+- The progress badge said "Downloading model…" whenever a model was not already
+  in RAM, including when it was sitting on disk and only being loaded. The
+  status endpoint always reported `downloaded` correctly; the UI ignored it. The
+  two waits are now told apart: "Downloading model…" and "Loading model…".
 - Memory tuning for onnxruntime: the CPU arena is disabled and execution is
   sequential on two threads, cutting a BiRefNet run from ~9.1 GB to ~7.5 GB for
   about 20% more time. This is what makes the full BiRefNet models usable on a
