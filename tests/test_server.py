@@ -977,3 +977,32 @@ def test_reported_time_covers_the_whole_request(client, monkeypatch):
     infer = float(r.headers["x-inference-time"])
     assert total >= infer, "the total cannot be shorter than the inference"
     assert total >= 0.05, "model loading must be inside the reported time"
+
+
+def test_cli_runs_windows_shims_through_the_shell():
+    """npm and npx resolve to .cmd shims on Windows, and spawnSync cannot
+    execute those directly - it fails with ENOENT even when the tool is
+    installed. `kirinuki desktop` reported "Could not install Electron" for
+    exactly that reason.
+    """
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    cli = open(os.path.join(root, "bin", "cli.js"), encoding="utf-8").read()
+
+    # every spawn of a .cmd must opt into the shell
+    for line in cli.splitlines():
+        if '.cmd"' not in line or "spawnSync" not in line:
+            continue
+        assert "shell:" in line, f"spawnSync of a .cmd without shell: {line.strip()[:90]}"
+
+    # the shared helper covers the rest
+    assert "needsShell" in cli, "run() must pass shell:true for .cmd on Windows"
+
+
+def test_cli_declares_is_win_before_using_it():
+    """IS_WIN is a const: using it above its declaration is a runtime error
+    that takes the whole CLI down on start."""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    cli = open(os.path.join(root, "bin", "cli.js"), encoding="utf-8").read()
+    declared = cli.index("const IS_WIN")
+    first_use = cli.index("IS_WIN ?")
+    assert declared < first_use, "IS_WIN must be declared before its first use"

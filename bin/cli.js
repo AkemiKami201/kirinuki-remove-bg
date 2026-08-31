@@ -43,7 +43,10 @@ const APP_NAME = "Remove Background Local";
 
 function log(m) { process.stdout.write(">> " + m + "\n"); }
 function err(m) { process.stderr.write(m + "\n"); }
-function run(cmd, args, opts) { return spawnSync(cmd, args, Object.assign({ stdio: "inherit" }, opts || {})); }
+function run(cmd, args, opts) {
+  const needsShell = IS_WIN && /\.(cmd|bat)$/i.test(cmd);
+  return spawnSync(cmd, args, Object.assign({ stdio: "inherit", shell: needsShell }, opts || {}));
+}
 
 function findPython() {
   // 3.11 is the floor: rembg 2.0.80+ dropped 3.9 and 3.10, so accepting an
@@ -130,7 +133,7 @@ function autoUpdateIfNewer() {
   const cur = currentVersion(); if (!cur) return;
   let latest = null;
   try {
-    const r = spawnSync(IS_WIN ? "npm.cmd" : "npm", ["view", "kirinuki", "version"], { encoding: "utf8", timeout: 7000 });
+    const r = spawnSync(IS_WIN ? "npm.cmd" : "npm", ["view", "kirinuki", "version"], { encoding: "utf8", timeout: 7000, shell: IS_WIN });
     if (r.status === 0) latest = (r.stdout || "").trim();
   } catch { return; }
   if (!latest || !semverGt(latest, cur)) return;
@@ -209,7 +212,7 @@ function desktopInstalled() {
 
 function npmLatest() {
   try {
-    const r = spawnSync(IS_WIN ? "npm.cmd" : "npm", ["view", "kirinuki", "version"], { encoding: "utf8", timeout: 8000 });
+    const r = spawnSync(IS_WIN ? "npm.cmd" : "npm", ["view", "kirinuki", "version"], { encoding: "utf8", timeout: 8000, shell: IS_WIN });
     return r.status === 0 ? (r.stdout || "").trim() : null;
   } catch { return null; }
 }
@@ -246,7 +249,16 @@ function ensureElectron() {
       fs.writeFileSync(path.join(desktopDir, "package.json"), JSON.stringify({ name: "rbl-desktop", private: true }, null, 2));
     }
     const r = run(IS_WIN ? "npm.cmd" : "npm", ["install", "electron@latest"], { cwd: desktopDir });
-    if (r.status !== 0 || !fs.existsSync(electronBin)) { err("Could not install Electron. You can still use `kirinuki web`."); process.exit(1); }
+    if (r.status !== 0 || !fs.existsSync(electronBin)) {
+      err("\nCould not install Electron into " + desktopDir + ".");
+      if (r.error) err("  " + r.error.message);
+      err("\nElectron downloads a ~100 MB binary, so this needs a working");
+      err("network connection and npm on PATH. Behind a proxy, set it first:");
+      err("  npm config set proxy http://your-proxy:port");
+      err("\nThe web interface does not need any of this:");
+      err("  kirinuki web\n");
+      process.exit(1);
+    }
   }
   return { desktopDir, electronBin };
 }
