@@ -90,7 +90,21 @@ applyTheme(storedTheme());
 
 //  IndexedDB persistence
 const DB_NAME = "removebg-local", STORE = "results";
-function idbOpen() { return new Promise((res, rej) => { const r = indexedDB.open(DB_NAME, 1); r.onupgradeneeded = () => { const db = r.result; if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "id" }); }; r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+function idbOpen() {
+  return new Promise((res, rej) => {
+    let req;
+    try {
+      req = indexedDB.open(DB_NAME, 1);
+    } catch (e) {
+      rej(e);
+      return;
+    }
+    req.onupgradeneeded = () => { const db = req.result; if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "id" }); };
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => rej(req.error || new Error("IndexedDB could not be opened"));
+    req.onblocked = () => rej(new Error("IndexedDB is blocked by another tab of this page"));
+  });
+}
 
 function txDone(tx, res, rej) {
   tx.oncomplete = () => res();
@@ -123,19 +137,36 @@ function fmtBytes(n) {
   return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
 }
 
-let quotaWarned = false;
+let storageWarned = false;
 
-// Running out of room does not always arrive as QuotaExceededError. Chrome on
-// Windows often aborts the transaction with a generic error instead, which used
-// to surface as a bare "Could not save" that explained nothing. So rather than
-// trusting the error name alone, ask how much room is left and decide from
-// that: a write that failed with the quota nearly full is a full disk whatever
-// the browser chose to call it.
-async function looksLikeStorageIsFull(err) {
-  if (err && (err.name === "QuotaExceededError" || err.name === "NS_ERROR_DOM_QUOTA_REACHED")) return true;
+const STORAGE_BLOCKED_ERRORS = ["UnknownError", "SecurityError", "InvalidStateError"];
+
+async function classifyStorageError(err) {
+  const name = err && err.name;
+  if (name === "QuotaExceededError" || name === "NS_ERROR_DOM_QUOTA_REACHED") return "full";
+  if (STORAGE_BLOCKED_ERRORS.includes(name)) return "blocked";
+  // A generic abort with the quota nearly gone is a full disk whatever the
+  // browser chose to call it -- Chrome on Windows does not always name it.
   const est = await storageUsage();
-  if (!est || !est.quota) return false;
-  return est.usage / est.quota > 0.9;
+  if (est && est.quota && est.usage / est.quota > 0.9) return "full";
+  return "unknown";
+}
+
+async function reportStorageFailure(err, what) {
+  const kind = await classifyStorageError(err);
+  if (kind === "unknown") {
+    toast(`Could not save "${what}" for later — see the console for why`, "err");
+    return;
+  }
+  if (storageWarned) return;
+  storageWarned = true;
+  if (kind === "blocked") {
+    toast("This browser is blocking storage for this page, so results cannot be kept. They stay on screen until you reload. Allow site data for this address, or download what you need first.", "err");
+    return;
+  }
+  const est = await storageUsage();
+  const room = est && est.quota ? ` (${fmtBytes(est.usage)} of ${fmtBytes(est.quota)} used)` : "";
+  toast(`Out of browser storage${room}. Results stay on screen but will be lost on reload — delete older sessions to free space.`, "err");
 }
 
 async function persistJob(job) {
@@ -144,16 +175,7 @@ async function persistJob(job) {
     await idbPut({ id: job.id, sessionId: job.sessionId, sessionCreatedAt: sessionCreatedAt(job.sessionId), createdAt: job.createdAt, name: job.name, model: job.model, ms: job.ms, outKB: job.outKB, bg: job.bg, inBlob: job.inBlob, outBlob: job.outBlob, exif: job.exif });
   } catch (e) {
     warn(`saving ${job.name}`, e);
-    if (await looksLikeStorageIsFull(e)) {
-      if (!quotaWarned) {
-        quotaWarned = true;
-        const est = await storageUsage();
-        const room = est && est.quota ? ` (${fmtBytes(est.usage)} of ${fmtBytes(est.quota)} used)` : "";
-        toast(`Out of browser storage${room}. Results stay on screen but will be lost on reload — delete older sessions to free space.`, "err");
-      }
-    } else {
-      toast(`Could not save "${job.name}" for later — see the console for why`, "err");
-    }
+    await reportStorageFailure(e, job.name);
   }
 }
 
@@ -417,15 +439,12 @@ function enqueue(files) {
   if (added) { viewedSessionId = currentSessionId; renderAll(); warnIfStorageNearlyFull(); pump(); }
 }
 
-// Warn before the work rather than after it. Finding out that a result cannot
-// be kept is much less annoying before waiting through the processing than
-// after, and the fix -- deleting an old session -- is the same either way.
 async function warnIfStorageNearlyFull() {
-  if (quotaWarned) return;
+  if (storageWarned) return;
   const est = await storageUsage();
   if (!est || !est.quota) return;
   if (est.usage / est.quota < 0.85) return;
-  quotaWarned = true;
+  storageWarned = true;
   toast(`Browser storage is nearly full (${fmtBytes(est.usage)} of ${fmtBytes(est.quota)}). Delete older sessions or new results will not survive a reload.`, "err");
 }
 
@@ -984,10 +1003,7 @@ async function refreshStorageAfter(deletions) {
   try {
     await Promise.allSettled(deletions);
   } catch (e) { warn("waiting for deletes", e); }
-  // Freeing space arms the warning again. Without this the "storage is full"
-  // notice fired once per page load and stayed silent afterwards, including
-  // after the user had acted on it and then filled the disk up again.
-  quotaWarned = false;
+  storageWarned = false;
   renderStorage();
 }
 
@@ -1373,7 +1389,13 @@ async function initInstall() {
 // Boot
 async function restoreFromIDB() {
   let records = [];
-  try { records = await idbAll(); } catch { records = []; }
+  try {
+    records = await idbAll();
+  } catch (e) {
+    warn("reading saved results", e);
+    records = [];
+    await reportStorageFailure(e, "saved results");
+  }
   records.sort((a, b) => a.createdAt - b.createdAt);
   const sessMap = {};
   for (const rec of records) {

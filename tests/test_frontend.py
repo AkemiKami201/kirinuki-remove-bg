@@ -713,26 +713,65 @@ def test_every_write_transaction_handles_abort():
     assert "tx.onabort" in body, "txDone must listen for abort, not just error"
 
 
-def test_a_full_disk_is_not_reported_as_an_unknown_failure():
-    """Chrome on Windows aborts the write with a generic error rather than a
-    QuotaExceededError, so matching on the error name alone mislabels a full
-    disk as an unexplained failure."""
+def test_a_blocked_database_is_not_reported_as_a_full_disk():
+    """Chrome raises `UnknownError: The user denied permission to access the
+    database` when the browser is set to block this page's storage. Telling
+    someone to delete older sessions then sends them off doing something that
+    cannot possibly help -- nothing about the disk is wrong."""
     js = script_body()
-    start = js.index("async function looksLikeStorageIsFull(")
+    assert "STORAGE_BLOCKED_ERRORS" in js
+    start = js.index("const STORAGE_BLOCKED_ERRORS")
+    assert "UnknownError" in js[start : js.index("\n", start)]
+
+    start = js.index("async function classifyStorageError(")
     body = js[start : js.index("\n}", start)]
     assert "QuotaExceededError" in body, "the clean quota error must still count"
-    assert "storageUsage()" in body, (
-        "when the name is generic, how full the quota is decides it"
+    assert "STORAGE_BLOCKED_ERRORS.includes" in body, (
+        "a refused database must be told apart from a full one"
     )
+    assert "storageUsage()" in body, (
+        "an unnamed failure with the quota nearly gone is still a full disk"
+    )
+    assert '"unknown"' in body, "anything else must be reported honestly, not guessed"
 
 
-def test_the_quota_warning_can_fire_again_after_space_is_freed():
+def test_the_three_storage_failures_give_three_different_answers():
+    js = script_body()
+    start = js.index("async function reportStorageFailure(")
+    body = js[start : js.index("\n}\n", start)]
+    assert "delete older sessions" in body.lower(), "the full case says what frees space"
+    assert "blocking storage" in body.lower(), "the blocked case says the browser refused"
+    assert "see the console" in body.lower(), "the unknown case admits it does not know"
+
+
+def test_a_blocked_database_is_reported_at_startup():
+    """Opening the database fails the same way a write does. Swallowing that
+    means finding out only after an image has been processed and waited for."""
+    js = script_body()
+    start = js.index("async function restoreFromIDB(")
+    body = js[start : js.index("\n}", start)]
+    assert "catch {" not in body, "the failure must not be swallowed silently"
+    assert "reportStorageFailure(" in body
+
+
+def test_opening_the_database_cannot_hang():
+    """`indexedDB.open` throws outright in a browser set to block site data, and
+    onblocked fires when another tab holds the database against an upgrade.
+    Neither settles a promise wired only to success and error."""
+    js = script_body()
+    start = js.index("function idbOpen(")
+    body = js[start : js.index("\n}\n", start)]
+    assert "try {" in body, "reading indexedDB can throw, not just fail"
+    assert "onblocked" in body, "a blocked open must reject rather than hang"
+
+
+def test_the_storage_warning_can_fire_again_after_space_is_freed():
     """Otherwise it warns once per page load and stays silent afterwards,
     including after the user acts on it and fills the disk up again."""
     js = script_body()
     start = js.index("async function refreshStorageAfter(")
     body = js[start : js.index("\n}", start)]
-    assert "quotaWarned = false" in body, (
+    assert "storageWarned = false" in body, (
         "deleting results must re-arm the warning"
     )
 

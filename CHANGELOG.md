@@ -148,6 +148,22 @@ Everything below is relative to the upstream project it was forked from.
   in RAM, including when it was sitting on disk and only being loaded. The
   status endpoint always reported `downloaded` correctly; the UI ignored it. The
   two waits are now told apart: "Downloading model…" and "Loading model…".
+- A browser configured to block this page's storage was reported as an
+  unexplained failure, and then, once the quota check was added, as a full disk.
+  Chrome raises `UnknownError: The user denied permission to access the
+  database` when site data is turned off for the address - through an
+  enterprise policy, a "clear site data on exit" rule, or the per-site data
+  toggle - and nothing about the disk is wrong. Being told to delete older
+  sessions sends the user off doing something that cannot help. The three cases
+  are now told apart and answered differently: a refused database, an exhausted
+  quota, and an unknown failure that says so honestly. The refused case is also
+  reported at startup, where opening the database fails the same way, instead of
+  only after an image had been processed and waited through.
+- Opening the database could hang rather than fail. `indexedDB.open` throws
+  outright when the browser blocks site data - reading the property is what
+  throws, so it cannot be guarded with a plain existence check - and `onblocked`
+  fires when another tab holds the database against an upgrade. Neither settled
+  a promise wired only to success and error.
 - Running out of browser storage was reported as an unexplained failure -
   `Could not save "..." for later` - rather than as a full disk. Only a clean
   `QuotaExceededError` was recognised, but Chrome on Windows tends to abort the
