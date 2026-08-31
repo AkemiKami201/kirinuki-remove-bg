@@ -148,6 +148,22 @@ Everything below is relative to the upstream project it was forked from.
   in RAM, including when it was sitting on disk and only being loaded. The
   status endpoint always reported `downloaded` correctly; the UI ignored it. The
   two waits are now told apart: "Downloading model…" and "Loading model…".
+- Running out of browser storage was reported as an unexplained failure -
+  `Could not save "..." for later` - rather than as a full disk. Only a clean
+  `QuotaExceededError` was recognised, but Chrome on Windows tends to abort the
+  write with a generic error instead, which fell through to the catch-all
+  message. How full the quota actually is now decides it. The notice also says
+  how much space is in use, and is raised when the images are added rather than
+  after the processing has been waited through. A 3000x3000 photo costs about
+  28 MB once stored (the source plus a PNG cut-out with an alpha channel), so a
+  modest quota fills faster than it looks.
+- IndexedDB writes could hang instead of failing. The promises settled on
+  `complete` and `error` but not on `abort`, and a transaction the browser kills
+  for lack of disk space aborts without ever firing `onerror`, so the save never
+  settled either way.
+- The storage warning fired at most once per page load and stayed silent
+  afterwards, including after the user had freed space and filled it again.
+  Deleting results re-arms it.
 - Memory tuning for onnxruntime: the CPU arena is disabled and execution is
   sequential on two threads, cutting a BiRefNet run from ~9.1 GB to ~7.5 GB for
   about 20% more time. This is what makes the full BiRefNet models usable on a

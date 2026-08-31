@@ -695,3 +695,53 @@ def test_storage_figure_is_not_hidden_by_an_empty_job_list():
     assert "!jobs.length" not in body, (
         "the figure reflects disk usage, not how many cards are on screen"
     )
+
+
+def test_every_write_transaction_handles_abort():
+    """A transaction can be aborted without firing onerror -- which is exactly
+    what the browser does when it kills a write for lack of disk space. A
+    promise settled only on complete/error hangs there instead of reporting."""
+    js = script_body()
+    for name in ("idbPut", "idbDelete", "idbClear", "idbPatch"):
+        start = js.index(f"function {name}(")
+        block = js[start : js.index("\n}", start) + 2]
+        assert "txDone(" in block, (
+            f"{name} must settle through txDone so an abort rejects instead of hanging"
+        )
+    start = js.index("function txDone(")
+    body = js[start : js.index("\n}", start)]
+    assert "tx.onabort" in body, "txDone must listen for abort, not just error"
+
+
+def test_a_full_disk_is_not_reported_as_an_unknown_failure():
+    """Chrome on Windows aborts the write with a generic error rather than a
+    QuotaExceededError, so matching on the error name alone mislabels a full
+    disk as an unexplained failure."""
+    js = script_body()
+    start = js.index("async function looksLikeStorageIsFull(")
+    body = js[start : js.index("\n}", start)]
+    assert "QuotaExceededError" in body, "the clean quota error must still count"
+    assert "storageUsage()" in body, (
+        "when the name is generic, how full the quota is decides it"
+    )
+
+
+def test_the_quota_warning_can_fire_again_after_space_is_freed():
+    """Otherwise it warns once per page load and stays silent afterwards,
+    including after the user acts on it and fills the disk up again."""
+    js = script_body()
+    start = js.index("async function refreshStorageAfter(")
+    body = js[start : js.index("\n}", start)]
+    assert "quotaWarned = false" in body, (
+        "deleting results must re-arm the warning"
+    )
+
+
+def test_a_full_quota_is_flagged_before_the_work_not_after():
+    """Learning that a result cannot be kept is much less annoying before
+    waiting through processing than after."""
+    js = script_body()
+    assert "warnIfStorageNearlyFull()" in js
+    start = js.index("async function warnIfStorageNearlyFull(")
+    body = js[start : js.index("\n}", start)]
+    assert "storageUsage()" in body and "toast(" in body

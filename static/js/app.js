@@ -91,7 +91,14 @@ applyTheme(storedTheme());
 //  IndexedDB persistence
 const DB_NAME = "removebg-local", STORE = "results";
 function idbOpen() { return new Promise((res, rej) => { const r = indexedDB.open(DB_NAME, 1); r.onupgradeneeded = () => { const db = r.result; if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "id" }); }; r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
-async function idbPut(rec) { const db = await idbOpen(); return new Promise((res, rej) => { const tx = db.transaction(STORE, "readwrite"); tx.objectStore(STORE).put(rec); tx.oncomplete = res; tx.onerror = () => rej(tx.error); }); }
+
+function txDone(tx, res, rej) {
+  tx.oncomplete = () => res();
+  tx.onerror = () => rej(tx.error || new Error("IndexedDB write failed"));
+  tx.onabort = () => rej(tx.error || new Error("IndexedDB transaction aborted"));
+}
+
+async function idbPut(rec) { const db = await idbOpen(); return new Promise((res, rej) => { const tx = db.transaction(STORE, "readwrite"); tx.objectStore(STORE).put(rec); txDone(tx, res, rej); }); }
 
 async function idbPatch(id, fields) {
   const db = await idbOpen();
@@ -104,27 +111,48 @@ async function idbPatch(id, fields) {
       if (!rec) { res(); return; }      // nothing saved yet; persistJob will
       store.put(Object.assign(rec, fields));
     };
-    tx.oncomplete = res;
-    tx.onerror = () => rej(tx.error);
+    txDone(tx, res, rej);
   });
 }
-async function idbDelete(id) { const db = await idbOpen(); return new Promise((res, rej) => { const tx = db.transaction(STORE, "readwrite"); tx.objectStore(STORE).delete(id); tx.oncomplete = res; tx.onerror = () => rej(tx.error); }); }
-async function idbClear() { const db = await idbOpen(); return new Promise((res, rej) => { const tx = db.transaction(STORE, "readwrite"); tx.objectStore(STORE).clear(); tx.oncomplete = res; tx.onerror = () => rej(tx.error); }); }
+async function idbDelete(id) { const db = await idbOpen(); return new Promise((res, rej) => { const tx = db.transaction(STORE, "readwrite"); tx.objectStore(STORE).delete(id); txDone(tx, res, rej); }); }
+async function idbClear() { const db = await idbOpen(); return new Promise((res, rej) => { const tx = db.transaction(STORE, "readwrite"); tx.objectStore(STORE).clear(); txDone(tx, res, rej); }); }
 async function idbAll() { const db = await idbOpen(); return new Promise((res, rej) => { const tx = db.transaction(STORE, "readonly"); const rq = tx.objectStore(STORE).getAll(); rq.onsuccess = () => res(rq.result || []); rq.onerror = () => rej(rq.error); }); }
 
+function fmtBytes(n) {
+  const mb = n / 1048576;
+  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
+}
+
 let quotaWarned = false;
+
+// Running out of room does not always arrive as QuotaExceededError. Chrome on
+// Windows often aborts the transaction with a generic error instead, which used
+// to surface as a bare "Could not save" that explained nothing. So rather than
+// trusting the error name alone, ask how much room is left and decide from
+// that: a write that failed with the quota nearly full is a full disk whatever
+// the browser chose to call it.
+async function looksLikeStorageIsFull(err) {
+  if (err && (err.name === "QuotaExceededError" || err.name === "NS_ERROR_DOM_QUOTA_REACHED")) return true;
+  const est = await storageUsage();
+  if (!est || !est.quota) return false;
+  return est.usage / est.quota > 0.9;
+}
+
 async function persistJob(job) {
   if (job.state !== "done" || !job.inBlob || !job.outBlob) return;
   try {
     await idbPut({ id: job.id, sessionId: job.sessionId, sessionCreatedAt: sessionCreatedAt(job.sessionId), createdAt: job.createdAt, name: job.name, model: job.model, ms: job.ms, outKB: job.outKB, bg: job.bg, inBlob: job.inBlob, outBlob: job.outBlob, exif: job.exif });
   } catch (e) {
     warn(`saving ${job.name}`, e);
-    const full = e && (e.name === "QuotaExceededError" || e.name === "NS_ERROR_DOM_QUOTA_REACHED");
-    if (full && !quotaWarned) {
-      quotaWarned = true;
-      toast("Storage is full. This result stays on screen but will be lost on reload — delete older sessions to free space.", "err");
-    } else if (!full) {
-      toast(`Could not save "${job.name}" for later`, "err");
+    if (await looksLikeStorageIsFull(e)) {
+      if (!quotaWarned) {
+        quotaWarned = true;
+        const est = await storageUsage();
+        const room = est && est.quota ? ` (${fmtBytes(est.usage)} of ${fmtBytes(est.quota)} used)` : "";
+        toast(`Out of browser storage${room}. Results stay on screen but will be lost on reload — delete older sessions to free space.`, "err");
+      }
+    } else {
+      toast(`Could not save "${job.name}" for later — see the console for why`, "err");
     }
   }
 }
@@ -386,7 +414,19 @@ function enqueue(files) {
     jobs.push({ id: genId(), sessionId: currentSessionId, createdAt: Date.now(), file: f, inBlob: f, name: f.name || `image-${added}.png`, model: selectedModel, state: "queued", inUrl: URL.createObjectURL(f), outUrl: null, outBlob: null, ms: null, outKB: null, bg: null, err: null, hidden: false });
     added++;
   }
-  if (added) { viewedSessionId = currentSessionId; renderAll(); pump(); }
+  if (added) { viewedSessionId = currentSessionId; renderAll(); warnIfStorageNearlyFull(); pump(); }
+}
+
+// Warn before the work rather than after it. Finding out that a result cannot
+// be kept is much less annoying before waiting through the processing than
+// after, and the fix -- deleting an old session -- is the same either way.
+async function warnIfStorageNearlyFull() {
+  if (quotaWarned) return;
+  const est = await storageUsage();
+  if (!est || !est.quota) return;
+  if (est.usage / est.quota < 0.85) return;
+  quotaWarned = true;
+  toast(`Browser storage is nearly full (${fmtBytes(est.usage)} of ${fmtBytes(est.quota)}). Delete older sessions or new results will not survive a reload.`, "err");
 }
 
 async function pump() {
@@ -944,6 +984,10 @@ async function refreshStorageAfter(deletions) {
   try {
     await Promise.allSettled(deletions);
   } catch (e) { warn("waiting for deletes", e); }
+  // Freeing space arms the warning again. Without this the "storage is full"
+  // notice fired once per page load and stayed silent afterwards, including
+  // after the user had acted on it and then filled the disk up again.
+  quotaWarned = false;
   renderStorage();
 }
 
@@ -955,7 +999,7 @@ async function renderStorage() {
   const mb = est.usage / 1048576;
   const pct = est.quota ? Math.min(100, (est.usage / est.quota) * 100) : 0;
   if (mb < 50 && pct < 60) { foot.hidden = true; return; }
-  const label = mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
+  const label = fmtBytes(est.usage);
   foot.hidden = false;
   foot.classList.toggle("warn", pct >= 80);
   foot.innerHTML = `Saved results: ${label}${est.quota ? ` · ${Math.round(pct)}% of quota` : ""}${pct >= 80 ? " — delete old sessions" : ""}<div class="bar"><span style="width:${pct}%"></span></div>`;
