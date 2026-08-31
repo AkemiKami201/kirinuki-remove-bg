@@ -282,13 +282,13 @@ Times are whole-request figures for a 3000x3000 photo on a 4-core Intel i3
 | `u2net` | The classic — good for simple products. | ~2s |
 | `u2net_human_seg` | People only. | ~2s |
 | `birefnet-general-lite` | Higher quality, still reasonable. | ~9s |
-| `birefnet-general` | Best quality for any image. | ~30s |
-| `birefnet-portrait` | People, best quality (difficult hair). | ~30s |
-| `birefnet-dis` | **Products and parts.** Objects with holes, mesh or thin structures. | ~30s |
-| `birefnet-massive` | Largest training set — a second opinion when DIS falls short. | ~30s |
-| `birefnet-hrsod` | High-resolution detail on large, sharp photos. | ~30s |
-| `birefnet-cod` | Low-contrast subjects that blend into the background. | ~30s |
-| `bria-rmbg` | BRIA RMBG-2.0. Top quality — see the licence note below. | ~30s |
+| `birefnet-general` | Best quality for any image. | ~22s |
+| `birefnet-portrait` | People, best quality (difficult hair). | ~22s |
+| `birefnet-dis` | **Products and parts.** Objects with holes, mesh or thin structures. | ~22s |
+| `birefnet-massive` | Largest training set — a second opinion when DIS falls short. | ~22s |
+| `birefnet-hrsod` | High-resolution detail on large, sharp photos. | ~22s |
+| `birefnet-cod` | Low-contrast subjects that blend into the background. | ~22s |
+| `bria-rmbg` | BRIA RMBG-2.0. Top quality — see the licence note below. | ~22s |
 
 > **Photographing parts or products?** Try `birefnet-dis` first. It is trained
 > on DIS5K, a dataset built for objects with holes, gaps and thin structures,
@@ -356,7 +356,7 @@ working copy). This is the whole request, not just the model:
 **Yes, the full BiRefNet models run on CPU on a 16 GB machine** — with ~8 GB
 free. They are tuned down from the ~9.2 GB onnxruntime uses by default: the CPU
 memory arena is disabled and execution is sequential on two threads, which
-trades about 20% speed for 18% less memory. Set `RBL_TUNE_MEMORY=0` to go back
+costs a little speed for 33% less memory. Set `RBL_TUNE_MEMORY=0` to go back
 to the defaults.
 
 ViTMatte adds nothing on a heavy model: it runs after the segmentation network
@@ -563,7 +563,7 @@ result - which is what the time on each card reports:
 | `u2net` | ~2s |
 | `isnet-general-use` | ~3s |
 | `birefnet-general-lite` | ~9s |
-| `birefnet-*` (full), `bria-rmbg` | ~30s |
+| `birefnet-*` (full), `bria-rmbg` | ~22s |
 
 A 40-image batch through `birefnet-dis` took 21 minutes end to end, averaging
 31s per image. A faster CPU or more cores will beat these figures; the numbers

@@ -174,7 +174,7 @@ MODEL_INFO = {
     "birefnet-general": {
         "title": "BiRefNet General",
         "tagline": "Best quality, slow",
-        "speed": "Slowest (~30s)",
+        "speed": "Slowest (~22s)",
         "quality": "Best",
         "best_for": "Maximum quality, any image",
         "description": (
@@ -186,7 +186,7 @@ MODEL_INFO = {
     "birefnet-portrait": {
         "title": "BiRefNet Portrait",
         "tagline": "Best for people, slow",
-        "speed": "Slow (~30s)",
+        "speed": "Slow (~22s)",
         "quality": "Best (people)",
         "best_for": "People with difficult hair",
         "description": (
@@ -198,7 +198,7 @@ MODEL_INFO = {
     "birefnet-dis": {
         "title": "BiRefNet DIS",
         "tagline": "Recommended for parts and cut-outs",
-        "speed": "Slowest (~30s)",
+        "speed": "Slowest (~22s)",
         "quality": "Best (fine detail)",
         "best_for": "Objects with holes, mesh, thin structures",
         "description": (
@@ -212,7 +212,7 @@ MODEL_INFO = {
     "birefnet-massive": {
         "title": "BiRefNet Massive",
         "tagline": "Largest training set",
-        "speed": "Slowest (~30s)",
+        "speed": "Slowest (~22s)",
         "quality": "Best",
         "best_for": "Difficult images, second opinion",
         "description": (
@@ -225,7 +225,7 @@ MODEL_INFO = {
     "birefnet-hrsod": {
         "title": "BiRefNet HRSOD",
         "tagline": "High-resolution detail",
-        "speed": "Slowest (~30s)",
+        "speed": "Slowest (~22s)",
         "quality": "Best (detail)",
         "best_for": "Large photos with fine edges",
         "description": (
@@ -238,7 +238,7 @@ MODEL_INFO = {
     "birefnet-cod": {
         "title": "BiRefNet COD",
         "tagline": "Low-contrast subjects",
-        "speed": "Slowest (~30s)",
+        "speed": "Slowest (~22s)",
         "quality": "Best (low contrast)",
         "best_for": "Subjects that blend into the background",
         "description": (
@@ -251,7 +251,7 @@ MODEL_INFO = {
     "bria-rmbg": {
         "title": "BRIA RMBG-2.0",
         "tagline": "State of the art, non-commercial licence",
-        "speed": "Slowest (~30s)",
+        "speed": "Slowest (~22s)",
         "quality": "Best",
         "best_for": "Maximum quality on any image",
         "description": (
@@ -463,7 +463,10 @@ def _session_options():
         return opts
     opts.enable_cpu_mem_arena = False
     opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-    opts.intra_op_num_threads = max(1, min(2, (os.cpu_count() or 2) - 1))
+    # The thread count is left to onnxruntime. Capping it at two was measured
+    # to cost 18% of the speed (27.8s against 22.7s on four cores) and saved no
+    # memory at all: the peak comes from the network's activations, not from
+    # how many threads walk them.
     return opts
 
 

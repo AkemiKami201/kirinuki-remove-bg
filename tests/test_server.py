@@ -530,7 +530,11 @@ def test_session_options_are_tuned_for_memory():
     puts a BiRefNet run back at ~9.1 GB."""
     opts = server._session_options()
     assert opts.enable_cpu_mem_arena is False, "the CPU arena holds the peak allocation"
-    assert opts.intra_op_num_threads >= 1
+    # 0 means "use every core". Capping the threads cost 18% of the speed and
+    # saved no memory, so the count is left to onnxruntime.
+    assert opts.intra_op_num_threads == 0, (
+        "do not cap the thread count: it slows inference without saving memory"
+    )
 
 
 def test_memory_tuning_can_be_disabled(monkeypatch):

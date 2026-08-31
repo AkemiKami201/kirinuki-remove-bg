@@ -131,6 +131,10 @@ Everything below is relative to the upstream project it was forked from.
   runs without having to restart the server.
 - The Models page shows which models are holding RAM and can free one on
   demand, instead of waiting for the 10-minute idle timer.
+- Inference was capped at two threads on every machine, which cost 18% of the
+  speed (27.8s against 22.7s on four cores) and saved no memory: the peak comes
+  from the network's activations, not from how many threads walk them. The
+  thread count is left to onnxruntime again.
 - Memory tuning for onnxruntime: the CPU arena is disabled and execution is
   sequential on two threads, cutting a BiRefNet run from ~9.1 GB to ~7.5 GB for
   about 20% more time. This is what makes the full BiRefNet models usable on a
