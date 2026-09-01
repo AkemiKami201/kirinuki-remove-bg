@@ -60,7 +60,8 @@ everything else is shared code.
 - Light, dark and system colour themes, switchable from the header and
   remembered across reloads. The system option follows the OS as it changes.
   Applied before the first paint, so there is no flash of the wrong theme.
-- Five new segmentation models, bringing the total to 11:
+- Five new segmentation models, bringing the total to 11 (12 with `u2netp`,
+  added below):
   - `birefnet-dis` — trained on DIS5K, for objects with holes and thin
     structures. The recommended model for parts and products.
   - `birefnet-massive` — largest training set of the BiRefNet family.

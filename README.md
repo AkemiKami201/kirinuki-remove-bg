@@ -51,7 +51,7 @@ objects with holes — plus **BRIA RMBG-2.0**, for when you want maximum quality
   downloaded, plus buttons to download or delete each one (with progress)
 - **Desktop app** — run it in a native window with `kirinuki desktop` (Electron)
 - **`kirinuki` command line** — start/stop, manage models and update from the terminal
-- Switch between 11 models depending on the case (general, parts with holes,
+- Switch between 12 models depending on the case (general, parts with holes,
   portrait, lite, etc.), including BiRefNet DIS and BRIA RMBG-2.0
 - Edge refinement for fine edges (hair, plants, thin structures): ViTMatte,
   halo removal and classic alpha matting
@@ -132,7 +132,7 @@ the heavy models earn their wait on the difficult ten percent.
 Every model with its size, speed and what it is best at. Download the ones you
 need; the rest stay off your disk.
 
-![The Models page listing all eleven models](docs/screenshots/models-page.webp)
+![The Models page listing all twelve models](docs/screenshots/models-page.webp)
 
 ## Requirements
 
@@ -146,7 +146,7 @@ need; the rest stay off your disk.
 - Python 3.11 or newer
 - Disk space: ~650 MB for the Python environment, plus the models you download
   (170 MB for the default, ~930 MB each for the BiRefNet family). Around 1.5 GB
-  covers a normal setup; all eleven models would be ~7.8 GB
+  covers a normal setup; all twelve models would be ~7.1 GB
 
 Check that you have Python:
 
