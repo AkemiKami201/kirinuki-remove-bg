@@ -106,7 +106,18 @@ Everything below is relative to the upstream project it was forked from.
   every light model (really ~2.6). Every row bar `birefnet-general-lite` is now
   a direct measurement, and that exception is marked.
 - The Linux desktop entry pointed at `static/logo-dark.png`, which does not
-  exist, so the launcher installed with a broken icon.
+  exist, so the launcher installed with a broken icon. Both installers now say
+  when the icon file is missing instead of installing a blank launcher, which
+  is how that typo survived in the first place.
+- **`kirinuki desktop install` on Windows could report a shortcut it never
+  created.** WScript.Shell errors are non-terminating, so a failed `.Save()`
+  printed its error and PowerShell still exited 0. The script now runs under
+  `$ErrorActionPreference = 'Stop'` in a try/catch that exits 1, and the
+  installer checks the file exists rather than trusting the exit code. The
+  three ways this can fail - PowerShell not starting, the script failing, and a
+  success that wrote nothing - are now reported separately instead of sharing
+  one message that pointed at none of them. A machine with only PowerShell 7
+  falls back to `pwsh`.
 - The installers called the app "Remove Background Local" while the UI and the
   window called it Kirinuki, so it landed in the application menu under the old
   name. Everything is Kirinuki now, including the state directory

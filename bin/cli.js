@@ -409,6 +409,9 @@ function installLinux() {
   const appsDir = path.join(os.homedir(), ".local", "share", "applications");
   fs.mkdirSync(appsDir, { recursive: true });
   const icon = path.join(APP_DIR, "static", "logo.png");
+  // A missing icon is written into the .desktop without complaint and shows up
+  // as a blank launcher - which is how the logo-dark.png typo went unnoticed.
+  if (!fs.existsSync(icon)) log("Icon file missing (" + icon + "); the launcher will have no icon.");
   const exec = `"${process.execPath}" "${path.join(APP_DIR, "bin", "cli.js")}" desktop`;
   const entry = [
     "[Desktop Entry]", "Type=Application", `Name=${APP_NAME}`,
@@ -431,18 +434,43 @@ function installWindows() {
   const programs = path.join(process.env.APPDATA || os.homedir(), "Microsoft", "Windows", "Start Menu", "Programs");
   try { fs.mkdirSync(programs, { recursive: true }); } catch {}
   const lnk = path.join(programs, APP_NAME + ".lnk");
+  if (!fs.existsSync(ico)) log("Icon file missing (" + ico + "); Windows will use a generic one.");
   const esc = (s) => s.replace(/'/g, "''");
+  // Stop + try/catch: a COM failure otherwise prints its error and still exits
+  // 0, which reported success with no shortcut written.
   const ps = [
+    "$ErrorActionPreference = 'Stop';",
+    "try {",
     "$s = (New-Object -ComObject WScript.Shell).CreateShortcut('" + esc(lnk) + "');",
     "$s.TargetPath = '" + esc(process.execPath) + "';",
     "$s.Arguments = '\"" + esc(cli) + "\" desktop';",
     "$s.IconLocation = '" + esc(ico) + "';",
     "$s.WorkingDirectory = '" + esc(APP_DIR) + "';",
     "$s.Save()",
+    "} catch { Write-Error $_; exit 1 }",
   ].join(" ");
-  const r = spawnSync("powershell", ["-NoProfile", "-Command", ps], { stdio: "inherit" });
-  if (r.status === 0) { log("Installed Start Menu shortcut: " + lnk); }
-  else { err("Could not create the shortcut. You can still run `kirinuki desktop`."); }
+
+  // powershell.exe first, then pwsh: a Windows install always has the former,
+  // but a stripped-down or PowerShell 7-only box may only have the latter.
+  let r = { status: null, error: new Error("powershell not started") };
+  for (const shell of ["powershell", "pwsh"]) {
+    r = spawnSync(shell, ["-NoProfile", "-Command", ps], { stdio: "inherit" });
+    if (!r.error) break;
+  }
+
+  // Three different failures, each with its own fix, so say which one it was.
+  if (r.error) {
+    err("Could not run PowerShell (" + r.error.message + ").");
+  } else if (r.status !== 0) {
+    err("PowerShell could not create the shortcut (exit " + r.status + ").");
+  } else if (!fs.existsSync(lnk)) {
+    // Reported success but wrote nothing - worth catching rather than trusting.
+    err("PowerShell reported success but " + lnk + " was not created.");
+  } else {
+    log("Installed Start Menu shortcut: " + lnk);
+    return;
+  }
+  err("You can still run the app with:  kirinuki desktop");
 }
 
 function cmdDesktopUninstall() {

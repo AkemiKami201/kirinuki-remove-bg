@@ -137,3 +137,46 @@ def test_no_npm_call_passes_arguments_through_a_shell(cli):
     )
     fallback = body_of(cli, "function npm(args, opts)")
     assert '"npm.cmd"' in fallback, "and that one mention is the fallback"
+
+
+def test_shortcut_failure_is_not_reported_as_success(cli):
+    """WScript.Shell errors are non-terminating: without ErrorActionPreference
+    the COM call prints its error, PowerShell still exits 0, and the installer
+    reported a shortcut it never wrote. The exit code alone is not proof, so
+    the file is checked afterwards too."""
+    body = body_of(cli, "function installWindows(")
+    assert "$ErrorActionPreference = 'Stop';" in body, (
+        "a COM failure otherwise exits 0"
+    )
+    assert "exit 1" in body, "and the catch has to turn it into a failing status"
+    assert "fs.existsSync(lnk)" in body, (
+        "verify the shortcut exists rather than trusting the exit code"
+    )
+
+
+def test_shortcut_reports_which_failure_happened(cli):
+    """Three failures need three different fixes: PowerShell missing, the
+    script failing, and a success that wrote nothing. One generic message sends
+    the user looking in the wrong place."""
+    body = body_of(cli, "function installWindows(")
+    assert "r.error" in body, "spawnSync sets .error (status stays null) when the shell will not start"
+    assert "r.status !== 0" in body, "a non-zero exit is a different failure"
+
+
+def test_shortcut_falls_back_to_pwsh(cli):
+    """powershell.exe is on every normal Windows install, but PowerShell 7-only
+    machines have just pwsh. Retry only when the shell fails to start: a script
+    that ran and failed must keep its error rather than be run twice."""
+    body = body_of(cli, "function installWindows(")
+    assert '"powershell", "pwsh"' in body, "try the Windows shell first, then PowerShell 7"
+    assert "if (!r.error) break;" in body, (
+        "break once a shell starts, so a real script failure is not retried"
+    )
+
+
+def test_installers_warn_about_a_missing_icon(cli):
+    """Both platforms accept a path that does not exist and quietly show a
+    blank or generic icon - which is how the logo-dark.png typo survived."""
+    for func in ("function installLinux(", "function installWindows("):
+        body = body_of(cli, func)
+        assert "Icon file missing" in body, f"{func} should say so instead of installing a broken icon"
