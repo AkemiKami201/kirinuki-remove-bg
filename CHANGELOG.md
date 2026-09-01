@@ -15,6 +15,10 @@ tend to fill the gaps in.
 
 Everything below is relative to the upstream project it was forked from.
 
+Tested on Linux and Windows. The macOS-specific paths (the `.app` bundle, its
+Info.plist and Launch Services registration) are unverified on real hardware;
+everything else is shared code.
+
 ### Added
 
 - Full-size viewer for results, with three modes over the same pair: the

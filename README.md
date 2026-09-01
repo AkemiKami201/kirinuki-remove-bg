@@ -253,11 +253,11 @@ node bin/cli.js desktop uninstall    # remove it
 
 What this does per platform:
 
-- **macOS** — builds a real `Remove Background Local.app` into `/Applications`
-  (its own name, icon and bundle id). Open it from Launchpad/Applications. Built
-  locally, so there is no Gatekeeper warning.
+- **macOS** — builds a real `Kirinuki.app` into `/Applications` (its own name,
+  icon and bundle id). Open it from Launchpad/Applications. Built locally, so
+  there is no Gatekeeper warning.
 - **Linux** — adds a `.desktop` launcher to `~/.local/share/applications`, so
-  "Remove Background Local" shows up in your application menu.
+  "Kirinuki" shows up in your application menu.
 - **Windows** — creates a Start Menu shortcut (with the app icon). Needs
   Python 3.11+ on PATH; tick "Add python.exe to PATH" in the Python installer,
   or install it from the python.org download rather than the Microsoft Store,
@@ -267,6 +267,14 @@ All of them launch the same desktop window and use the Python environment under
 `~/.kirinuki/` (run `node bin/cli.js init` to recreate it if
 needed). A signed/notarized installer for distributing to other people would
 need a platform developer account — out of scope for now.
+
+> **Tested on Linux and Windows.** The macOS paths - building the `.app`,
+> patching its Info.plist, registering it with Launch Services, and the plist
+> patching `kirinuki desktop` does on the Electron bundle - are written and
+> reviewed but have not been run on a real Mac, so treat them as unverified.
+> The server and the web interface are the same code everywhere; only opening
+> your browser differs (`open` rather than `xdg-open`).
+> [Reports welcome](https://github.com/AkemiKami201/kirinuki-remove-bg/issues).
 
 **Updating the installed app:** `kirinuki update` pulls the latest npm release
 and refreshes the installed app. Running from a clone instead, `git pull` then
