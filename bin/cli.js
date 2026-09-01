@@ -239,17 +239,31 @@ function cmdUpdate() {
 }
 function pkgVersion() { try { return require(path.join(APP_DIR, "package.json")).version || "0.0.0"; } catch { return "0.0.0"; } }
 
+function electronExecutable(desktopDir) {
+  const pkgDir = path.join(desktopDir, "node_modules", "electron");
+  try {
+    const rel = fs.readFileSync(path.join(pkgDir, "path.txt"), "utf8").trim();
+    if (rel) {
+      const exe = path.join(pkgDir, "dist", rel);
+      if (fs.existsSync(exe)) return exe;
+    }
+  } catch (e) { }
+  const fallback = path.join(pkgDir, "dist", IS_WIN ? "electron.exe" : "electron");
+  return fs.existsSync(fallback) ? fallback : null;
+}
+
 function ensureElectron() {
   const desktopDir = path.join(HOME, "desktop");
-  const electronBin = path.join(desktopDir, "node_modules", ".bin", IS_WIN ? "electron.cmd" : "electron");
-  if (!fs.existsSync(electronBin)) {
+  let electronBin = electronExecutable(desktopDir);
+  if (!electronBin) {
     log("Installing the desktop runtime (Electron) the first time...");
     fs.mkdirSync(desktopDir, { recursive: true });
     if (!fs.existsSync(path.join(desktopDir, "package.json"))) {
       fs.writeFileSync(path.join(desktopDir, "package.json"), JSON.stringify({ name: "rbl-desktop", private: true }, null, 2));
     }
     const r = run(IS_WIN ? "npm.cmd" : "npm", ["install", "electron@latest"], { cwd: desktopDir });
-    if (r.status !== 0 || !fs.existsSync(electronBin)) {
+    electronBin = electronExecutable(desktopDir);
+    if (r.status !== 0 || !electronBin) {
       err("\nCould not install Electron into " + desktopDir + ".");
       if (r.error) err("  " + r.error.message);
       err("\nElectron downloads a ~100 MB binary, so this needs a working");
@@ -283,9 +297,15 @@ function cmdDesktop(rest) {
     try { fs.utimesSync(appBundle, new Date(), new Date()); } catch {}
   }
   log("Opening desktop app...");
+
+  const nodePath = [path.join(desktopDir, "node_modules"), process.env.NODE_PATH]
+    .filter(Boolean).join(path.delimiter);
+  const childEnv = Object.assign({}, process.env, { RBL_PY: VENV_PY, RBL_APP: APP_DIR, HOST, PORT, NODE_PATH: nodePath });
+  delete childEnv.ELECTRON_RUN_AS_NODE;
+  delete childEnv.ELECTRON_NO_ATTACH_CONSOLE;
   const child = spawn(electronBin, [path.join(APP_DIR, "electron", "main.js")], {
     stdio: "inherit",
-    env: Object.assign({}, process.env, { RBL_PY: VENV_PY, RBL_APP: APP_DIR, HOST, PORT }),
+    env: childEnv,
   });
   child.on("exit", (code) => process.exit(code || 0));
 }

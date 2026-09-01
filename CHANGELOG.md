@@ -220,6 +220,22 @@ Everything below is relative to the upstream project it was forked from.
 
 ### Fixed (Windows)
 
+- `kirinuki desktop` failed with `Error: spawn EINVAL` after downloading
+  Electron. It was launched through `node_modules/.bin/electron.cmd`, a batch
+  file, and Node has refused to spawn one without a shell since the fix for
+  CVE-2024-27980. Enabling the shell would only have traded that for a quoting
+  problem, since the path runs through the user's home directory and may
+  contain spaces, so the real executable is used instead - the electron package
+  records its name in `path.txt`.
+- Two further faults were hidden behind that one, since nothing reached them
+  while the spawn failed: `electron/main.js` could not resolve the `electron`
+  module (it ships in the package directory, but the module is installed into
+  the state directory, so the upward search never reached it - `NODE_PATH` now
+  points at it), and launching from a terminal inside VS Code or Cursor
+  inherited `ELECTRON_RUN_AS_NODE=1`, which tells Electron to behave as a plain
+  Node runtime, leaving `require("electron")` with no app object and killing
+  main.js on its first API call. Both are cleared for the child process.
+
 - The desktop app left the Python server running after the window closed:
   `kill()` only signals the direct child on Windows, and that process can hold
   several GB. Both the app and `kirinuki stop` now end the process tree.
