@@ -22,8 +22,8 @@ A fast, private background-removal tool that runs entirely on your own machine.
 > Unofficial open-source project. Not affiliated with remove.bg or Canva Austria GmbH.
 >
 > This is a fork of [tecnomanu/remove-background-local](https://github.com/tecnomanu/remove-background-local),
-> adapted for **product and spare-part photography**: subjects with holes, mesh
-> and thin structures, where general-purpose models tend to fill the gaps in.
+> with extra attention to **difficult edges**: hair, mesh, thin structures and
+> subjects with holes, where general-purpose models tend to fill the gaps in.
 > See [what this fork changes](#what-this-fork-changes).
 
 An offline alternative for people who want a workflow similar to cloud

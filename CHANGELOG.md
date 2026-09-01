@@ -7,6 +7,22 @@ This project is a fork of
 The upstream history up to v1.15.2 is not repeated here; this changelog starts
 at the point the fork diverged.
 
+## [1.0.1] - 2026-09-01
+
+### Changed
+
+- Describe the project by what it does rather than by the photography it was
+  tuned on. The npm description and the README both led with "product and
+  spare-part photography", which reads as a niche tool: the default model is
+  general-purpose and handles any subject, and the fork's real advantage is
+  difficult edges - hair, mesh, thin structures - whatever they belong to.
+
+### Fixed
+
+- The model count said eleven in three places in the README, and gave the
+  combined download as ~7.8 GB. Adding `u2netp` took the catalogue to twelve,
+  and the actual sum across `AVAILABLE_MODELS` is 7.1 GB.
+
 ## [1.0.0] - 2026-08-30
 
 First release of this fork, focused on product and spare-part photography:
