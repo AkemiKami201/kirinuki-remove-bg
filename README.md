@@ -224,12 +224,13 @@ node bin/cli.js web                     # start the web server (foreground)
 node bin/cli.js start                   # start it in the background
 node bin/cli.js stop                    # stop the background server
 node bin/cli.js desktop                 # open as a desktop app (Electron)
+node bin/cli.js uninstall               # remove the environment, models and shortcut
 node bin/cli.js help                    # show all commands
 ```
 
 Background server state (the pidfile and logs) lives in `~/.kirinuki/`.
-Note that `kirinuki update` updates from npm, so it does not apply to this fork —
-pull from git instead.
+Running from a clone, update with `git pull` rather than `kirinuki update`,
+which replaces the globally installed npm package instead.
 
 ### Desktop app
 
@@ -270,6 +271,32 @@ need a platform developer account — out of scope for now.
 **Updating the installed app:** `kirinuki update` pulls the latest npm release
 and refreshes the installed app. Running from a clone instead, `git pull` then
 `node bin/cli.js desktop install` does the same.
+
+### Uninstalling
+
+A full install is several GB - a Python environment, the Electron runtime and
+whatever models were downloaded - and none of that lives inside the npm
+package, so `npm uninstall` alone leaves all of it behind.
+
+```bash
+kirinuki uninstall          # lists what would go, and how much space it frees
+kirinuki uninstall --yes    # actually deletes it
+```
+
+It removes `~/.kirinuki/` (the Python environment and Electron runtime), the
+model cache, and the desktop shortcut or launcher. Nothing is deleted without
+`--yes`. Add `--keep-models` to keep the downloaded models, which is what you
+want if you are reinstalling rather than leaving.
+
+The `kirinuki` command itself is npm's, so remove it separately:
+
+```bash
+npm uninstall -g kirinuki
+```
+
+> The model cache is rembg's, not this project's (`~/.rembg`, or wherever
+> `U2NET_HOME` / `REMBG_HOME` / `XDG_DATA_HOME` point). If another rembg-based
+> tool shares it, use `--keep-models`.
 
 ## Usage
 

@@ -12,6 +12,7 @@
  *   kirinuki models pull --model X   Download a model
  *   kirinuki models rm   --model X   Delete a downloaded model
  *   kirinuki update         Update to the latest published version
+ *   kirinuki uninstall      Remove the environment, models and shortcut
  *   kirinuki help           Show this help
  *
  * Needs Python 3.11+ already installed (Node cannot install Python for you).
@@ -488,6 +489,129 @@ function cmdDesktopUninstall() {
   if (fs.existsSync(wl)) { try { fs.unlinkSync(wl); removed = true; log("Removed " + wl); } catch {} }
   if (!removed) log("No installed app/shortcut found.");
 }
+
+// --- uninstall -----------------------------------------------------------
+function dirSizeBytes(dir) {
+  let total = 0;
+  let stack = [dir];
+  while (stack.length) {
+    const cur = stack.pop();
+    let entries;
+    try { entries = fs.readdirSync(cur, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries) {
+      const p = path.join(cur, e.name);
+      if (e.isDirectory()) stack.push(p);
+      else if (e.isFile()) { try { total += fs.statSync(p).size; } catch {} }
+    }
+  }
+  return total;
+}
+// MB rounds a small cache down to a misleading "0 MB", and GB reads better
+// once the models are in play.
+function fmtSize(bytes) {
+  if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + " GB";
+  if (bytes >= 1048576) return (bytes / 1048576).toFixed(0) + " MB";
+  return Math.max(1, Math.round(bytes / 1024)) + " KB";
+}
+
+// Ask rembg where its cache is rather than assuming ~/.rembg: U2NET_HOME,
+// REMBG_HOME and XDG_DATA_HOME all move it, and guessing would either miss the
+// models or delete an unrelated directory.
+function modelCacheDirs() {
+  const dirs = [];
+  if (fs.existsSync(VENV_PY)) {
+    const code = "from rembg.sessions.base import BaseSession as B; print(B.rembg_home()); print(B.legacy_home())";
+    const r = spawnSync(VENV_PY, ["-c", code], { encoding: "utf8" });
+    if (r.status === 0) {
+      for (const line of (r.stdout || "").split("\n").map((s) => s.trim()).filter(Boolean)) {
+        if (fs.existsSync(line)) dirs.push(line);
+      }
+    }
+  }
+  // The venv may already be gone or broken, so mirror rembg's own resolution
+  // rather than hardcoding ~/.rembg: U2NET_HOME wins outright, REMBG_HOME and
+  // XDG_DATA_HOME move it, and a wrong guess here deletes the wrong directory.
+  if (!dirs.length) {
+    const home = os.homedir();
+    const xdg = process.env.XDG_DATA_HOME;
+    const legacy = process.env.U2NET_HOME || path.join(xdg || home, ".u2net");
+    const primary = process.env.U2NET_HOME
+      ? legacy
+      : (process.env.REMBG_HOME || (xdg ? path.join(xdg, "rembg") : path.join(home, ".rembg")));
+    for (const d of [primary, legacy]) {
+      if (fs.existsSync(d)) dirs.push(d);
+    }
+  }
+  return [...new Set(dirs)];
+}
+
+function rmrf(target) {
+  try { fs.rmSync(target, { recursive: true, force: true }); return true; }
+  catch (e) { err("Could not remove " + target + ": " + e.message); return false; }
+}
+
+// Deleting gigabytes is not undoable, so it takes an explicit --yes rather than
+// a prompt: the command is scriptable, and a prompt would hang a piped shell.
+function cmdUninstall(rest) {
+  const flags = rest.map((a) => a.toLowerCase());
+  const assumeYes = flags.includes("--yes") || flags.includes("-y");
+  const keepModels = flags.includes("--keep-models");
+
+  // Stop a background server first: on Windows a running python.exe holds its
+  // own files open and the directory refuses to go.
+  const pid = readPid();
+  if (pid && pidAlive(pid)) { log("Stopping the background server first..."); cmdStop(); }
+
+  // RBL_HOME is user-set and could point anywhere, including the installed
+  // package or the repository. Deleting either takes the app itself with it.
+  const inside = (parent, child) => {
+    const rel = path.relative(path.resolve(parent), path.resolve(child));
+    return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+  };
+  if (inside(HOME, APP_DIR)) {
+    err("Refusing to delete " + HOME + ": it contains the app itself (" + APP_DIR + ").");
+    err("RBL_HOME should point at the state directory, not the installed package.");
+    process.exit(1);
+  }
+
+  const targets = [];
+  if (fs.existsSync(HOME)) targets.push({ path: HOME, what: "Python environment and desktop runtime" });
+  if (!keepModels) {
+    for (const d of modelCacheDirs()) targets.push({ path: d, what: "downloaded models" });
+  }
+
+  cmdDesktopUninstall();
+
+  if (!targets.length) {
+    log("Nothing left to remove.");
+    log("The `kirinuki` command itself is removed with:  npm uninstall -g kirinuki");
+    return;
+  }
+
+  let total = 0;
+  log("This will permanently delete:");
+  for (const t of targets) {
+    const size = dirSizeBytes(t.path);
+    total += size;
+    process.stdout.write(`     ${t.path}  (${t.what}, ${fmtSize(size)})\n`);
+  }
+  process.stdout.write(`   Total: ${fmtSize(total)}\n`);
+  if (keepModels) log("Keeping the downloaded models (--keep-models).");
+
+  if (!assumeYes) {
+    err("\nNothing has been deleted yet. Re-run with --yes to go ahead:");
+    err("  kirinuki uninstall --yes");
+    err("Add --keep-models to keep the downloaded models.");
+    return;
+  }
+
+  for (const t of targets) {
+    if (rmrf(t.path)) log("Removed " + t.path);
+  }
+  log("Done. " + fmtSize(total) + " freed.");
+  log("The `kirinuki` command itself is removed with:  npm uninstall -g kirinuki");
+}
+
 function cmdHelp() {
   process.stdout.write(`
 kirinuki — remove image backgrounds locally
@@ -504,6 +628,9 @@ Usage:
   kirinuki models pull --model X   Download a model
   kirinuki models rm   --model X   Delete a downloaded model
   kirinuki update                  Update to the latest version
+  kirinuki uninstall               Remove the environment, models and shortcut
+                                   (shows what it would delete; --yes to go
+                                   ahead, --keep-models to keep the models)
   kirinuki version                 Print the installed version
   kirinuki help                    Show this help
 
@@ -523,6 +650,7 @@ function main() {
     case "desktop": case "app": return cmdDesktop(rest);
     case "models": case "model": return cmdModels(rest);
     case "update": case "upgrade": return cmdUpdate();
+    case "uninstall": return cmdUninstall(rest);
     case "version": case "--version": case "-v": return void process.stdout.write((currentVersion() || "unknown") + "\n");
     case "help": case "-h": case "--help": return cmdHelp();
     default:

@@ -72,12 +72,22 @@ Everything below is relative to the upstream project it was forked from.
   alpha matting kept mutually exclusive (the server rejects both at once).
 - Guidance in the UI and README on lowering the alpha-matting erode value to
   2-5 for thin structures; the default of 10 eats fine detail.
-- `u2netp` is now offered: a 5 MB download with a ~1.2 GB peak, the only model
-  a 4 GB machine can run once the system and a browser have taken their share.
-  Rougher edges than ISNet, but it runs where nothing else does.
+- `u2netp` is now offered: a 5 MB download with a measured 557 MB peak, the only
+  model a 4 GB machine can run once the system and a browser have taken their
+  share. Rougher edges than ISNet, but it runs where nothing else does. Leave
+  ViTMatte off there - it costs ~2.6 GB whatever model it refines.
 - A pixel-count limit (`RBL_MAX_IMAGE_PIXELS`, 120 MP by default) checked from
   the image header before decoding. A few MB of PNG can decode to hundreds of
   megapixels, and the memory guard only runs after the decode.
+- `kirinuki uninstall`, which removes the Python environment, the Electron
+  runtime, the model cache and the desktop shortcut. A full install is several
+  GB and none of it lives inside the npm package, so `npm uninstall` alone left
+  all of it on disk with nothing pointing at it. It lists what it would delete
+  and how much that frees, and does nothing without `--yes`; `--keep-models`
+  keeps the downloads for a reinstall. The model cache is located by asking the
+  installed rembg rather than assuming `~/.rembg`, since `U2NET_HOME`,
+  `REMBG_HOME` and `XDG_DATA_HOME` all move it, and a HOME that contains the
+  app itself is refused rather than deleted.
 - The upload limit is published in `/models`, so the hint in the UI follows
   `MAX_UPLOAD_MB` instead of claiming 30 MB whatever it is set to. The browser
   also rejects an oversized file up front rather than uploading it for a 413.

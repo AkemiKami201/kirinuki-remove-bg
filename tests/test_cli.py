@@ -180,3 +180,49 @@ def test_installers_warn_about_a_missing_icon(cli):
     for func in ("function installLinux(", "function installWindows("):
         body = body_of(cli, func)
         assert "Icon file missing" in body, f"{func} should say so instead of installing a broken icon"
+
+
+def test_uninstall_needs_an_explicit_yes(cli):
+    """Deleting several GB is not undoable, and the command has to be usable
+    from a script, so it takes a flag rather than a prompt that would hang a
+    piped shell."""
+    body = body_of(cli, "function cmdUninstall(")
+    assert '"--yes"' in body and '"-y"' in body, "the go-ahead is an explicit flag"
+    assert "Nothing has been deleted yet" in body, (
+        "without it the command only reports what it would delete"
+    )
+
+
+def test_uninstall_refuses_to_delete_the_app_itself(cli):
+    """RBL_HOME is user-set and could point at the installed package or the
+    repository, either of which would take the app down with the state."""
+    body = body_of(cli, "function cmdUninstall(")
+    assert "Refusing to delete" in body, "a HOME containing APP_DIR must be rejected"
+    assert "path.relative" in body, (
+        "compare resolved paths; a string prefix match would miss ../ and casing"
+    )
+
+
+def test_uninstall_asks_rembg_where_the_models_are(cli):
+    """U2NET_HOME, REMBG_HOME and XDG_DATA_HOME all move the model cache.
+    Hardcoding ~/.rembg would either miss the models or delete a directory that
+    is not the one in use."""
+    body = body_of(cli, "function modelCacheDirs(")
+    assert "rembg_home()" in body and "legacy_home()" in body, (
+        "ask the installed rembg first"
+    )
+    # Read past the comments: naming a variable in prose is not honouring it.
+    code = "\n".join(
+        line for line in body.splitlines() if not line.strip().startswith("//")
+    )
+    for var in ("U2NET_HOME", "REMBG_HOME", "XDG_DATA_HOME"):
+        assert f"process.env.{var}" in code, (
+            f"the fallback must read {var} like rembg does, not just mention it"
+        )
+
+
+def test_uninstall_stops_a_running_server_first(cli):
+    """On Windows a running python.exe holds its own files open, so the
+    directory refuses to go while the background server is alive."""
+    body = body_of(cli, "function cmdUninstall(")
+    assert "pidAlive(pid)" in body and "cmdStop()" in body
