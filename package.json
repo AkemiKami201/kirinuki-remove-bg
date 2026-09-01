@@ -24,6 +24,9 @@
     "node": ">=16"
   },
   "keywords": [
+    "kirinuki",
+    "background-remover",
+    "transparent",
     "background-removal",
     "remove-background",
     "rembg",
