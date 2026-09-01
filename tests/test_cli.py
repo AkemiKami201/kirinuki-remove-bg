@@ -38,12 +38,14 @@ def test_electron_is_launched_through_the_real_executable(cli):
     assert "electron.exe" in body, "and a fallback is needed if that file is missing"
 
 
-def test_the_electron_path_is_rechecked_after_installing(cli):
-    """It is resolved before the install, when it is necessarily absent, so
-    reusing that first result would report a failure for every fresh install."""
-    body = body_of(cli, "function ensureElectron(")
-    assert body.count("electronExecutable(desktopDir)") == 2, (
-        "resolve again after npm install rather than trusting the pre-install miss"
+def test_the_electron_path_is_rechecked_after_each_fetch_step(cli):
+    """It is resolved before anything is fetched, when it is necessarily
+    absent, so reusing that first miss would report a failure for every fresh
+    install. Both fetch steps -- the npm package and the binary -- have to be
+    followed by a fresh look."""
+    body = body_of(cli, "function ensureElectron(", "\n}\n")
+    assert body.count("electronExecutable(desktopDir)") >= 3, (
+        "resolve again after the install and after the binary download"
     )
 
 
@@ -70,3 +72,35 @@ def test_batch_shims_still_run_through_a_shell(cli):
     body = body_of(cli, "function run(cmd, args, opts)")
     assert "shell: needsShell" in body
     assert r"/\.(cmd|bat)$/i" in body
+
+
+def test_a_missing_binary_is_downloaded_rather_than_reinstalled(cli):
+    """The npm package and its ~100 MB binary are fetched in two separate
+    steps, and only the first is `npm install`. An interrupted download leaves
+    the package installed but empty, after which npm reports "up to date"
+    forever and re-running the install cannot fix it. The package ships its own
+    downloader for this case."""
+    body = body_of(cli, "function fetchElectronBinary(")
+    assert "install.js" in body, "the package's own downloader is what retries the binary"
+
+    setup = body_of(cli, "function ensureElectron(", "\n}\n")
+    assert "fetchElectronBinary(" in setup, (
+        "a present-but-empty package must trigger the download, not another install"
+    )
+
+
+def test_the_install_is_skipped_when_the_package_is_already_there(cli):
+    """Re-running it wastes time on a step npm will decline anyway, and the
+    'Installing ... the first time' line is untrue on a second run."""
+    setup = body_of(cli, "function ensureElectron(", "\n}\n")
+    assert "fs.existsSync(pkgDir)" in setup
+
+
+def test_the_failure_message_names_the_real_cause(cli):
+    """Reporting 'could not install' when npm has just said 'up to date'
+    describes the wrong problem and suggests a fix that cannot work."""
+    setup = body_of(cli, "function ensureElectron(", "\n}\n")
+    assert "two steps" in setup, "the message must explain the split install"
+    assert "rmdir /s /q" in setup and "rm -rf" in setup, (
+        "and give the removal command that actually clears the state"
+    )

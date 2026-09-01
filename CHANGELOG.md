@@ -227,6 +227,15 @@ Everything below is relative to the upstream project it was forked from.
   problem, since the path runs through the user's home directory and may
   contain spaces, so the real executable is used instead - the electron package
   records its name in `path.txt`.
+- An interrupted Electron download could not be recovered from. The npm
+  package and the ~100 MB binary it runs are fetched in two separate steps, and
+  only the first is `npm install`; if the second is interrupted the package is
+  left installed but empty. npm then reports "up to date" for every later
+  attempt, so re-running the install - which is what the launcher did - could
+  never fix it, and the failure was reported as "Could not install Electron"
+  directly under npm's own claim of success. The package's own downloader is
+  run instead, which repairs the install in place, and the message left when
+  even that fails explains the two-step fetch and gives the command to clear it.
 - Two further faults were hidden behind that one, since nothing reached them
   while the spawn failed: `electron/main.js` could not resolve the `electron`
   module (it ships in the package directory, but the module is installed into

@@ -241,40 +241,65 @@ function pkgVersion() { try { return require(path.join(APP_DIR, "package.json"))
 
 function electronExecutable(desktopDir) {
   const pkgDir = path.join(desktopDir, "node_modules", "electron");
+  if (!fs.existsSync(pkgDir)) return null;
   try {
     const rel = fs.readFileSync(path.join(pkgDir, "path.txt"), "utf8").trim();
     if (rel) {
       const exe = path.join(pkgDir, "dist", rel);
       if (fs.existsSync(exe)) return exe;
     }
-  } catch (e) { }
+  } catch (e) { /* no path.txt yet; the binary step below may still fetch it */ }
   const fallback = path.join(pkgDir, "dist", IS_WIN ? "electron.exe" : "electron");
   return fs.existsSync(fallback) ? fallback : null;
+}
+
+
+function fetchElectronBinary(desktopDir) {
+  const installer = path.join(desktopDir, "node_modules", "electron", "install.js");
+  if (!fs.existsSync(installer)) return false;
+  log("Downloading the Electron binary (~100 MB)...");
+  const r = run(process.execPath, [installer], { cwd: path.dirname(installer) });
+  return r.status === 0;
 }
 
 function ensureElectron() {
   const desktopDir = path.join(HOME, "desktop");
   let electronBin = electronExecutable(desktopDir);
-  if (!electronBin) {
+  if (electronBin) return { desktopDir, electronBin };
+
+  const pkgDir = path.join(desktopDir, "node_modules", "electron");
+  let npmResult = { status: 0 };
+  if (!fs.existsSync(pkgDir)) {
     log("Installing the desktop runtime (Electron) the first time...");
     fs.mkdirSync(desktopDir, { recursive: true });
     if (!fs.existsSync(path.join(desktopDir, "package.json"))) {
       fs.writeFileSync(path.join(desktopDir, "package.json"), JSON.stringify({ name: "rbl-desktop", private: true }, null, 2));
     }
-    const r = run(IS_WIN ? "npm.cmd" : "npm", ["install", "electron@latest"], { cwd: desktopDir });
+    npmResult = run(IS_WIN ? "npm.cmd" : "npm", ["install", "electron@latest"], { cwd: desktopDir });
     electronBin = electronExecutable(desktopDir);
-    if (r.status !== 0 || !electronBin) {
-      err("\nCould not install Electron into " + desktopDir + ".");
-      if (r.error) err("  " + r.error.message);
-      err("\nElectron downloads a ~100 MB binary, so this needs a working");
-      err("network connection and npm on PATH. Behind a proxy, set it first:");
-      err("  npm config set proxy http://your-proxy:port");
-      err("\nThe web interface does not need any of this:");
-      err("  kirinuki web\n");
-      process.exit(1);
-    }
+    if (electronBin) return { desktopDir, electronBin };
   }
-  return { desktopDir, electronBin };
+
+  // The package is present but its binary is not, so npm has nothing left to
+  // do and will keep saying "up to date". Run the package's own downloader.
+  if (npmResult.status === 0 && fetchElectronBinary(desktopDir)) {
+    electronBin = electronExecutable(desktopDir);
+    if (electronBin) return { desktopDir, electronBin };
+  }
+
+  err("\nCould not set up Electron in " + desktopDir + ".");
+  if (npmResult.error) err("  " + npmResult.error.message);
+  err("\nElectron is fetched in two steps: the npm package, then a ~100 MB");
+  err("binary. The package is here but the binary is missing, which usually");
+  err("means the download was interrupted. npm reports \"up to date\" from");
+  err("then on and will not retry it, so remove the package and start again:");
+  err("  rmdir /s /q \"" + pkgDir + "\"     (Windows)");
+  err("  rm -rf \"" + pkgDir + "\"          (macOS/Linux)");
+  err("\nBehind a proxy, set it first:");
+  err("  npm config set proxy http://your-proxy:port");
+  err("\nThe web interface does not need any of this:");
+  err("  kirinuki web\n");
+  process.exit(1);
 }
 
 function patchPlistName(plist) {
