@@ -4,6 +4,7 @@ Local server to remove image backgrounds using SOTA open-source models.
 
 Available models (rembg):
 - isnet-general-use  : Default. Fast, very good quality
+- u2netp             : Smallest. The one that fits a low-RAM machine
 - u2net              : Classic, good speed/quality balance
 - u2net_human_seg    : People only, very fast
 - birefnet-general-lite : High quality, lighter backbone
@@ -67,6 +68,12 @@ from rembg import new_session, remove
 from rembg.sessions import sessions_class
 from rembg.sessions.base import BaseSession
 
+# Optional: the memory guard falls back to /proc (Linux only) without it.
+try:
+    import psutil
+except ImportError:
+    psutil = None
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -93,6 +100,7 @@ APP_VERSION = _pkg_version()
 
 AVAILABLE_MODELS = {
     "isnet-general-use": "ISNet General (default — fast, very good quality)",
+    "u2netp": "U2Net Lite (smallest — for low-RAM machines)",
     "u2net": "U2Net (classic, fastest)",
     "u2net_human_seg": "U2Net Human (people only, fast)",
     "birefnet-general-lite": "BiRefNet Lite (high quality, slower)",
@@ -108,6 +116,7 @@ AVAILABLE_MODELS = {
 # Approximate download size in MB (one-time, cached afterwards).
 MODEL_SIZES_MB = {
     "isnet-general-use": 170,
+    "u2netp": 5,
     "u2net": 170,
     "u2net_human_seg": 170,
     "birefnet-general-lite": 224,
@@ -133,6 +142,20 @@ MODEL_INFO = {
             "The default. A strong balance of speed and quality, reliable on "
             "photos, product shots and people. Fast on CPU and accurate in most "
             "situations, which makes it the best first choice."
+        ),
+    },
+    "u2netp": {
+        "title": "U2Net Lite",
+        "tagline": "Smallest — for low-RAM machines",
+        "speed": "Fastest (~1s)",
+        "quality": "Fair",
+        "best_for": "Machines with little RAM",
+        "description": (
+            "The small version of U2Net: a 5 MB download and by far the "
+            "lightest model here, which makes it the one that runs on a 4 GB "
+            "laptop where everything else is refused for want of memory. Edges "
+            "are rougher and fine detail is lost, so prefer ISNet when the "
+            "machine has the RAM for it."
         ),
     },
     "u2net": {
@@ -271,6 +294,11 @@ MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 
 # Set RBL_MAX_PROCESS_PX=0 to disable and always process at full resolution.
 MAX_PROCESS_PX = int(os.environ.get("RBL_MAX_PROCESS_PX", "1600"))
+
+# Upper bound on decoded pixels, checked from the header before the decode.
+# 120 MP covers any real camera (a 100 MP medium format included) and stops a
+# small file that expands to gigabytes of RGBA.
+MAX_IMAGE_PIXELS = int(os.environ.get("RBL_MAX_IMAGE_PIXELS", str(120_000_000)))
 
 # Refuse a request when the estimated peak would leave the machine with less
 # than this much RAM free.
@@ -622,6 +650,7 @@ async def models():
         "peak_mb": {name: MODEL_PEAK_MB.get(name, 2000) for name in AVAILABLE_MODELS},
         "available_mb": available_memory_mb(),
         "max_process_px": MAX_PROCESS_PX,
+        "max_upload_mb": MAX_UPLOAD_MB,
         "loaded": list(_SESSIONS.keys()),
         "process_mb": round(process_rss_mb()),
         "headroom_mb": MEMORY_HEADROOM_MB,
@@ -759,9 +788,15 @@ def available_memory_mb() -> float | None:
     """RAM the machine can hand out right now, in MB, or None if unknown.
 
     "Available" (not "free") is the number that matters: it counts reclaimable
-    cache. Read from /proc on Linux; other platforms fall back to None and the
-    memory check is skipped rather than guessed at.
+    cache. psutil reports it on all three platforms; /proc is the fallback for
+    a Linux box where psutil failed to install. Windows and macOS used to get
+    None here, which silently skipped the whole memory guard below.
     """
+    if psutil is not None:
+        try:
+            return psutil.virtual_memory().available / 1048576
+        except Exception:  # noqa: BLE001 - a psutil failure must not break a request
+            pass
     try:
         with open("/proc/meminfo", "r") as fh:
             for line in fh:
@@ -773,12 +808,14 @@ def available_memory_mb() -> float | None:
 
 
 # Peak RSS for one inference, in MB, measured on this project with the tuned
-# session options above (CPU, onnxruntime 1.29, 4-core i3).
+# session options above (CPU, onnxruntime 1.29), at a 1600px working copy.
+# These are the segmentation network's own peak; the request total adds the
+# constant and per-megapixel terms in estimate_peak_mb below.
 MODEL_PEAK_MB = {
     "isnet-general-use": 1100,
     "u2net": 1100,
     "u2net_human_seg": 1100,
-    "u2netp": 700,
+    "u2netp": 600,
     "birefnet-general-lite": 2600,
     "birefnet-general": 6800,
     "birefnet-portrait": 6800,
@@ -786,7 +823,10 @@ MODEL_PEAK_MB = {
     "birefnet-massive": 6800,
     "birefnet-hrsod": 6800,
     "birefnet-cod": 6800,
-    "bria-rmbg": 7100,
+    # Measured at 8501-8608 MB plain and 8723 with vitmatte, against an
+    # estimate of 8179: the old 7100 left the guard ~600 MB short on the model
+    # that peaks highest, which is where being short matters most.
+    "bria-rmbg": 7750,
 }
 
 def process_rss_mb() -> float:
@@ -794,7 +834,13 @@ def process_rss_mb() -> float:
 
     Counted as part of the budget for the next run: a loaded model and the
     allocator's retained pages are reused rather than requested again.
+    psutil first so Windows and macOS get a real number instead of 0.
     """
+    if psutil is not None:
+        try:
+            return psutil.Process().memory_info().rss / 1048576
+        except Exception:  # noqa: BLE001
+            pass
     try:
         with open("/proc/self/status", "r") as fh:
             for line in fh:
@@ -817,10 +863,19 @@ def estimate_peak_mb(model: str, px: int, vitmatte: bool, decontaminate: bool,
     """
     mp = max(1.0, px / 1_000_000)                     # megapixels
     model_mb = MODEL_PEAK_MB.get(model, 2000)
-    base = 260 + model_mb + mp * 320
+    per_mp = 320 if model_mb >= 1000 else 120
+    base = 260 + model_mb + mp * per_mp
 
     if vitmatte:
-        base = max(base, 260 + 2500 + mp * 900)
+        # A max(), not a sum: rembg runs vitmatte_alpha() only after
+        # session.predict() has returned, so the two never hold their buffers
+        # at once. On a heavy model the segmentation peak already dominates
+        # (birefnet-dis: 7711 MB plain, 7870 with vitmatte); on a light one
+        # vitmatte is what sets the peak (u2netp: 557 -> 2565).
+        # Measured on u2netp at 0.64/1.44/2.56 MP: 2244/2435/2585 MB, which
+        # fits 2151 + 175*MP. The old 2500 + 900*MP claimed 5064 MB at 2.56 MP,
+        # nearly double the worst light model measured (2750).
+        base = max(base, 260 + 2000 + mp * 250)
     elif alpha_matting:
         base += mp * 500
     if decontaminate:
@@ -1039,6 +1094,18 @@ async def remove_background(
         img = Image.open(io.BytesIO(raw))  # reopen to use
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Invalid image: {exc}")
+
+    # A few MB of PNG can decode to hundreds of megapixels, and the memory
+    # check below runs after the decode. Reject on the header instead.
+    if img.width * img.height > MAX_IMAGE_PIXELS:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Image too large: {img.width}x{img.height} is "
+                f"{img.width * img.height / 1_000_000:.0f} MP, over the "
+                f"{MAX_IMAGE_PIXELS // 1_000_000} MP limit."
+            ),
+        )
 
     refinements = [
         n for n, on in (

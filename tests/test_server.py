@@ -959,8 +959,11 @@ def test_published_files_cover_what_the_app_needs_to_run():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     pkg = json.load(open(os.path.join(root, "package.json"), encoding="utf-8"))
     listed = set(pkg["files"])
-    for needed in ("bin/", "server.py", "requirements.txt", "static/", "run.sh"):
+    # run.sh is deliberately absent: it is the from-source entry point, bash-only,
+    # and nothing in the package calls it (cli.js manages its own venv).
+    for needed in ("bin/", "electron/", "server.py", "requirements.txt", "static/"):
         assert needed in listed, f"{needed} would not be published"
+    assert "run.sh" not in listed, "run.sh is bash-only and unused by the npm package"
 
 
 def test_reported_time_covers_the_whole_request(client, monkeypatch):
@@ -1069,3 +1072,130 @@ def test_idle_ttl_survives_a_normal_pause():
     import server
 
     assert server.MODEL_IDLE_TTL >= 1800
+
+
+def test_memory_readings_come_from_psutil_first(monkeypatch):
+    """Windows and macOS have no /proc, and returning None there skipped the
+    whole memory guard. Both readings must come from psutil before /proc, so
+    the numbers are real on every platform.
+
+    Checked by making psutil return sentinels: if /proc were consulted first,
+    these would be the machine's own figures instead.
+    """
+    import server
+
+    assert server.psutil is not None, "psutil is required for the memory guard"
+
+    class FakeVM:
+        available = 4096 * 1048576      # 4096 MB
+
+    class FakeMem:
+        rss = 512 * 1048576             # 512 MB
+
+    class FakeProcess:
+        def memory_info(self):
+            return FakeMem()
+
+    monkeypatch.setattr(server.psutil, "virtual_memory", lambda: FakeVM())
+    monkeypatch.setattr(server.psutil, "Process", lambda *a: FakeProcess())
+
+    assert server.available_memory_mb() == 4096
+    assert server.process_rss_mb() == 512
+
+
+def test_memory_readings_fall_back_when_psutil_is_missing(monkeypatch):
+    """psutil is a hard requirement, but a broken install must not crash a
+    request: /proc still answers on Linux, and the guard skips elsewhere."""
+    import server
+
+    monkeypatch.setattr(server, "psutil", None)
+
+    avail = server.available_memory_mb()
+    assert avail is None or avail > 0        # None off Linux, a real figure on it
+    assert server.process_rss_mb() >= 0
+
+
+def test_lightest_model_fits_a_small_machine():
+    """u2netp exists so a 4 GB laptop has something it can run. If the estimate
+    for it climbs back over ~2 GB, that machine is locked out again."""
+    import server
+
+    need = server.estimate_peak_mb("u2netp", 1600 * 1600, False, False, False)
+    assert need + server.MEMORY_HEADROOM_MB < 2500
+
+
+def test_lightest_model_is_offered():
+    import server
+
+    assert "u2netp" in server.AVAILABLE_MODELS
+    assert "u2netp" in server.MODEL_INFO
+    assert "u2netp" in server.MODEL_SIZES_MB
+    assert server.MODEL_PEAK_MB["u2netp"] < server.MODEL_PEAK_MB["isnet-general-use"]
+
+
+def test_oversized_pixel_count_is_refused(client, monkeypatch):
+    """A few MB of PNG can decode to hundreds of megapixels, and the memory
+    guard runs after the decode. The header check must catch it first."""
+    import server
+
+    monkeypatch.setattr(server, "MAX_IMAGE_PIXELS", 10_000)
+    r = client.post(
+        "/remove",
+        files={"image": ("big.png", png_bytes((200, 200)), "image/png")},
+    )
+    assert r.status_code == 413
+    assert "MP" in r.json()["detail"]
+
+
+def test_upload_limit_is_published_to_the_ui():
+    """The hint in the UI used to be hardcoded at 30 MB and lied when the limit
+    was raised."""
+    import server
+
+    from fastapi.testclient import TestClient
+
+    with TestClient(server.app) as c:
+        assert c.get("/models").json()["max_upload_mb"] == server.MAX_UPLOAD_MB
+
+
+def test_estimate_covers_every_measured_peak():
+    """The guard decides before the run, so it may over-estimate but must never
+    under-estimate: being short is what lets a machine swap or get OOM-killed.
+
+    Peaks measured on this project at a 1600px working copy (CPU), plain and
+    with ViTMatte. bria-rmbg was the one that used to fall through: measured
+    8608 MB against an estimate of 8179.
+    """
+    import server
+
+    px = 1600 * 1600
+    measured = {
+        # model: (plain, vitmatte)
+        "u2netp": (557, 2565),
+        "u2net": (790, 2750),
+        "isnet-general-use": (979, 2749),
+        "birefnet-general": (7777, 7805),
+        "birefnet-dis": (7711, 7870),
+        "bria-rmbg": (8608, 8723),
+    }
+    for model, (plain, vit) in measured.items():
+        assert server.estimate_peak_mb(model, px, False, False, False) >= plain, model
+        assert server.estimate_peak_mb(model, px, True, False, False) >= vit, model
+
+
+def test_vitmatte_does_not_stack_on_the_segmentation_peak():
+    """rembg runs the matting network only after session.predict() returns, so
+    the peak is max(segmentation, vitmatte) and not the sum. A heavy model
+    therefore barely moves; a light one is set by ViTMatte."""
+    import server
+
+    px = 1600 * 1600
+    heavy_plain = server.estimate_peak_mb("birefnet-dis", px, False, False, False)
+    heavy_vit = server.estimate_peak_mb("birefnet-dis", px, True, False, False)
+    assert heavy_vit == heavy_plain          # measured 7711 -> 7870, within noise
+
+    light_plain = server.estimate_peak_mb("u2netp", px, False, False, False)
+    light_vit = server.estimate_peak_mb("u2netp", px, True, False, False)
+    assert light_vit > light_plain           # measured 557 -> 2565
+    # And it must not run away: the old term claimed 5064 MB against 2565 measured.
+    assert light_vit < 3500

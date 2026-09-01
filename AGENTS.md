@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Guide for AI agents (and humans) working on **remove-background-local**. Read this before
+Guide for AI agents (and humans) working on **Kirinuki**. Read this before
 making changes. It explains the architecture, the conventions, and — importantly
 — how to test, because **every commit must keep the test suite green**.
 
@@ -119,8 +119,8 @@ inference are monkeypatched. CI (`.github/workflows/tests.yml`) runs the same
 
 ## Naming / legal
 
-- The product name in the UI and README is **rm.background local** (the
-  repo / package slug stays `remove-background-local`). Do NOT use the "remove.bg"
+- The product name everywhere - UI, README, installers, npm package - is
+  **Kirinuki**. Do NOT use the "remove.bg"
   wordmark as the product name or imitate their visual identity. remove.bg may
   be mentioned only as a contextual comparison, alongside the disclaimer that
   this is an unofficial project, not affiliated with remove.bg / Canva.

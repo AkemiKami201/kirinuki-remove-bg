@@ -72,8 +72,63 @@ Everything below is relative to the upstream project it was forked from.
   alpha matting kept mutually exclusive (the server rejects both at once).
 - Guidance in the UI and README on lowering the alpha-matting erode value to
   2-5 for thin structures; the default of 10 eats fine detail.
+- `u2netp` is now offered: a 5 MB download with a ~1.2 GB peak, the only model
+  a 4 GB machine can run once the system and a browser have taken their share.
+  Rougher edges than ISNet, but it runs where nothing else does.
+- A pixel-count limit (`RBL_MAX_IMAGE_PIXELS`, 120 MP by default) checked from
+  the image header before decoding. A few MB of PNG can decode to hundreds of
+  megapixels, and the memory guard only runs after the decode.
+- The upload limit is published in `/models`, so the hint in the UI follows
+  `MAX_UPLOAD_MB` instead of claiming 30 MB whatever it is set to. The browser
+  also rejects an oversized file up front rather than uploading it for a 413.
 
 ### Fixed
+
+- **The memory guard only worked on Linux.** Free RAM was read from
+  `/proc/meminfo`, so on Windows and macOS it returned nothing and the check
+  was skipped entirely: picking a full BiRefNet on an 8 GB machine meant
+  swapping or an OOM kill with no warning, and the UI's warning banner never
+  appeared. Both readings now come from `psutil` (a new dependency), with
+  `/proc` kept as the fallback.
+- The estimate charged light models the heavy models' per-megapixel cost on top
+  of a figure that already included it, so `u2netp` was refused on the 4 GB
+  machines it exists for. Measured peak is 549 MB against 1779 MB estimated.
+- **`bria-rmbg` was under-estimated**, the one direction that matters: measured
+  at 8501-8608 MB plain and 8723 MB with ViTMatte, against an estimate of 8179.
+  The guard would have waved through a run that did not fit. Its share is now
+  7750 MB.
+- The ViTMatte term claimed 5064 MB at 2.56 MP against 2565-2750 MB measured,
+  roughly double. Measured across three sizes (2244/2435/2585 MB at
+  0.64/1.44/2.56 MP) it fits `2151 + 175*MP`, so the term is now
+  `2000 + 250*MP`. The old figure refused refinement runs that would have fit.
+- The README's memory table listed derived figures as measured ones, including
+  a `u2netp` row of 1.2 GB (really 0.6) and a flat 4.9 GB ViTMatte column for
+  every light model (really ~2.6). Every row bar `birefnet-general-lite` is now
+  a direct measurement, and that exception is marked.
+- The Linux desktop entry pointed at `static/logo-dark.png`, which does not
+  exist, so the launcher installed with a broken icon.
+- The installers called the app "Remove Background Local" while the UI and the
+  window called it Kirinuki, so it landed in the application menu under the old
+  name. Everything is Kirinuki now, including the state directory
+  (`~/.kirinuki`). Since this is the first published release there is nothing
+  in the wild under the old name, so no compatibility path is carried for it.
+- `kirinuki update` reported the version it had just replaced, because
+  `require()` had already cached `package.json`.
+- `run.sh` called `.venv/bin/pip`, whose shebang holds an absolute path and
+  fails outright when the project folder has been moved — the one case the
+  surrounding venv-repair logic exists for.
+
+### Changed
+
+- Auto-update on launch is now opt-in (`RBL_AUTO_UPDATE=1`). It previously ran
+  `npm install -g` unasked, which is not ours to decide and is forbidden on
+  many machines. It now just says a newer version exists. The message no longer
+  claims to launch the new version either: the running process has the old code
+  already loaded, so an update applies from the next launch.
+- `onnxruntime` is capped below 2.0, like the other dependencies: session
+  options are the API the memory tuning goes through.
+- `run.sh` is no longer published to npm. It is the from-source entry point and
+  nothing in the package calls it; `cli.js` manages its own environment.
 
 - The sidebar's storage figure did not update after deleting an image or a
   session, only after a reload. The IndexedDB deletes were fired without being

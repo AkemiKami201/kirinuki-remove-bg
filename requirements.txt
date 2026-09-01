@@ -21,4 +21,10 @@ rembg>=2.0.80,<3
 # ONNX inference runtime (uses CoreML on Mac Apple Silicon).
 # Recent rembg versions moved this to an optional extra, so we add it
 # explicitly here. Do NOT use onnxruntime-gpu on Mac (CUDA only).
-onnxruntime>=1.16
+# Capped below the next major like the others: session options are the API we
+# tune memory through, and a major is free to change them.
+onnxruntime>=1.16,<2
+
+# Free-RAM and process-RSS readings for the memory guard. Without it the guard
+# only works on Linux (/proc), so Windows and macOS ran with no protection.
+psutil>=5.9

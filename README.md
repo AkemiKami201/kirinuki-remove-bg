@@ -137,6 +137,12 @@ need; the rest stay off your disk.
 ## Requirements
 
 - Any machine with a 64-bit CPU. No GPU needed; the models run on CPU
+- **RAM is what decides which models you can run**, not the CPU:
+  ~2 GB free for `u2netp`, ~3 GB for the ISNet/U2Net pair, ~4.5 GB for
+  BiRefNet Lite and ~8.5 GB for the full BiRefNet models. The server measures
+  the free memory and refuses a run that would not fit, so a small machine gets
+  a clear message instead of a freeze. See
+  [Memory](#memory-which-model-your-machine-can-actually-run)
 - Python 3.11 or newer
 - Disk space: ~650 MB for the Python environment, plus the models you download
   (170 MB for the default, ~930 MB each for the BiRefNet family). Around 1.5 GB
@@ -279,6 +285,7 @@ Times are whole-request figures for a 3000x3000 photo on a 4-core Intel i3
 | Model | When to use it | Speed |
 |---|---|---|
 | `isnet-general-use` | **Default.** Fast and very good quality for any image. | ~3s |
+| `u2netp` | **Smallest.** 5 MB, ~1.2 GB of RAM — the one for a low-memory machine. Rougher edges. | ~1s |
 | `u2net` | The classic — good for simple products. | ~2s |
 | `u2net_human_seg` | People only. | ~2s |
 | `birefnet-general-lite` | Higher quality, still reasonable. | ~9s |
@@ -348,20 +355,43 @@ working copy). This is the whole request, not just the model:
 
 | Model | Peak | + ViTMatte |
 |---|---|---|
-| `isnet-general-use`, `u2net` | ~2.1 GB | ~4.9 GB |
-| `birefnet-general-lite` | ~3.6 GB | ~4.9 GB |
-| `birefnet-*` (full) | **~7.7 GB** | ~7.7 GB |
-| `bria-rmbg` | **~8.0 GB** | ~8.0 GB |
+| `u2netp` | ~0.6 GB | ~2.6 GB |
+| `u2net` | ~0.8 GB | ~2.7 GB |
+| `isnet-general-use` | ~1.0 GB | ~2.7 GB |
+| `birefnet-general-lite` * | ~2.6 GB | ~2.7 GB |
+| `birefnet-*` (full) | **~7.8 GB** | ~7.9 GB |
+| `bria-rmbg` | **~8.6 GB** | ~8.7 GB |
+
+\* `birefnet-general-lite` is the one row carried over from an earlier
+estimate rather than measured directly; the others were each run twice.
+
+**Why ViTMatte barely moves the heavy models.** It is not added to the
+segmentation peak, it is compared against it: rembg only calls the matting
+network after the segmentation network has returned, so the two never hold
+their buffers at the same time and the peak is whichever is larger. ViTMatte
+costs about 2.6 GB on its own. On `u2netp` that is four times the model's own
+peak, so it sets the ceiling (0.6 -> 2.6 GB); on `birefnet-dis` it fits inside
+the memory the segmentation pass just released (7.7 -> 7.9 GB). The figures
+above are measured, not derived: `birefnet-dis` came out at 7711 MB plain and
+7870 MB with ViTMatte.
+
+> The server's own estimate is deliberately more pessimistic than this table —
+> it has to decide before the run, without knowing the image. A refused request
+> costs a retry; an underestimate costs a machine that swaps or an OOM kill.
+
+**On a 4 GB laptop, use `u2netp`.** It is the only model that fits once the
+system and a browser have taken their share: a 5 MB download, ~0.6 GB peak and
+about a second per image. Quality is a step below ISNet — edges are rougher and
+fine detail is lost — but it runs where nothing else does. Download it from the
+**Models** page, or `kirinuki models pull --model u2netp`. **Leave ViTMatte off
+there:** it costs ~2.6 GB whatever model it refines, which is four times what
+`u2netp` itself needs and enough to put the request out of reach.
 
 **Yes, the full BiRefNet models run on CPU on a 16 GB machine** — with ~8 GB
 free. They are tuned down from the ~9.2 GB onnxruntime uses by default: the CPU
 memory arena is disabled and execution is sequential on two threads, which
 costs a little speed for 33% less memory. Set `RBL_TUNE_MEMORY=0` to go back
 to the defaults.
-
-ViTMatte adds nothing on a heavy model: it runs after the segmentation network
-has released its buffers (measured 7669 MB with and without it on
-`birefnet-dis`).
 
 The cost is the network's intermediate activations — **not** your photo and not
 the weights. `birefnet-dis` peaked at 9.1 GB even with a 512x512 input, and
@@ -506,6 +536,18 @@ MAX_UPLOAD_MB=100 ./run.sh              # Raise the size limit
 # CoreML provider hangs on some models on Apple Silicon. CPU is fast enough for
 # the lighter models. Only change this if you know what you are doing:
 REMBG_PROVIDERS=CoreMLExecutionProvider,CPUExecutionProvider ./run.sh
+
+# Reject an image whose decoded size is over this many pixels, checked from the
+# header before decoding (default 120 MP — more than any real camera):
+RBL_MAX_IMAGE_PIXELS=200000000 ./run.sh
+```
+
+For the `kirinuki` command:
+
+```bash
+RBL_AUTO_UPDATE=1 kirinuki web   # install a newer version on launch (off by
+                                 # default; it otherwise only tells you one exists)
+RBL_NO_UPDATE=1 kirinuki web     # do not even check npm
 ```
 
 ## Programmatic use (no UI)
@@ -564,6 +606,7 @@ result - which is what the time on each card reports:
 
 | Model | Per image |
 |---|---|
+| `u2netp` | ~1s |
 | `u2net` | ~2s |
 | `isnet-general-use` | ~3s |
 | `birefnet-general-lite` | ~9s |
@@ -648,7 +691,7 @@ from this project's:
 |---|---|---|
 | `birefnet-*` (all variants) | MIT | Yes |
 | `isnet-general-use` | Apache 2.0 | Yes |
-| `u2net`, `u2net_human_seg` | Apache 2.0 | Yes |
+| `u2net`, `u2netp`, `u2net_human_seg` | Apache 2.0 | Yes |
 | `bria-rmbg` (BRIA RMBG-2.0) | CC BY-NC 4.0 | **No** — needs an agreement with BRIA |
 
 > **If you are cutting out products for a shop or catalogue**, that is

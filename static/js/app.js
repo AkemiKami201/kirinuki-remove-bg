@@ -31,7 +31,7 @@ const SWATCHES = [
 
 let MODELS = {}, SIZES = {}, INFO = {}, DOWNLOADED = {}, DEFAULT_MODEL = null;
 let PEAK_MB = {}, AVAILABLE_MB = null, LOADED = [];
-let PROCESS_MB = 0, HEADROOM_MB = 700, MAX_PROCESS_PX = 1600;
+let PROCESS_MB = 0, HEADROOM_MB = 700, MAX_PROCESS_PX = 1600, MAX_UPLOAD_MB = 30;
 let selectedModel = null;
 let resultBg = "checker";
 let jobs = [];                 // all jobs across sessions (persisted)
@@ -217,6 +217,11 @@ async function loadModels() {
   PEAK_MB = data.peak_mb || {}; AVAILABLE_MB = data.available_mb; LOADED = data.loaded || [];
   PROCESS_MB = data.process_mb || 0; HEADROOM_MB = data.headroom_mb != null ? data.headroom_mb : 700;
   if (data.max_process_px != null) MAX_PROCESS_PX = data.max_process_px;
+  // The limit is configurable server-side; the hint used to be hardcoded at 30.
+  if (data.max_upload_mb != null) {
+    MAX_UPLOAD_MB = data.max_upload_mb;
+    const el = $("max-upload"); if (el) el.textContent = MAX_UPLOAD_MB;
+  }
   selectedModel = selectedModel || DEFAULT_MODEL;
   renderModelDropdown(); renderModelsPage(); updateMemoryWarning();
 }
@@ -433,6 +438,8 @@ function enqueue(files) {
   let added = 0;
   for (const f of files) {
     if (!f.type.startsWith("image/")) { toast(`Skipped "${f.name}" (not an image)`, "err"); continue; }
+    // Catch it here instead of uploading the whole file just to get a 413 back.
+    if (f.size > MAX_UPLOAD_MB * 1024 * 1024) { toast(`Skipped "${f.name}" (over ${MAX_UPLOAD_MB} MB)`, "err"); continue; }
     jobs.push({ id: genId(), sessionId: currentSessionId, createdAt: Date.now(), file: f, inBlob: f, name: f.name || `image-${added}.png`, model: selectedModel, state: "queued", inUrl: URL.createObjectURL(f), outUrl: null, outBlob: null, ms: null, outKB: null, bg: null, err: null, hidden: false });
     added++;
   }

@@ -33,12 +33,14 @@ fi
 # 2) Make sure the key dependencies are installed. If any is missing, run
 #    pip install (idempotent and fast when everything is already present).
 NEED_INSTALL=0
-"$VENV_DIR/bin/python" -c "import fastapi, uvicorn, rembg, PIL, multipart, onnxruntime" 2>/dev/null || NEED_INSTALL=1
+"$VENV_DIR/bin/python" -c "import fastapi, uvicorn, rembg, PIL, multipart, onnxruntime, psutil" 2>/dev/null || NEED_INSTALL=1
 
 if [ "$NEED_INSTALL" = "1" ]; then
   echo ">> Installing / updating dependencies (first run can take 2-5 min)..."
-  "$VENV_DIR/bin/pip" install --upgrade pip
-  "$VENV_DIR/bin/pip" install -r requirements.txt
+  # python -m pip, not bin/pip: the latter has the old path in its shebang and
+  # fails outright when the project folder has been moved.
+  "$VENV_DIR/bin/python" -m pip install --upgrade pip
+  "$VENV_DIR/bin/python" -m pip install -r requirements.txt
 fi
 
 HOST="${HOST:-127.0.0.1}"

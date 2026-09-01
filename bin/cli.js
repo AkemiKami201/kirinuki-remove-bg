@@ -26,9 +26,7 @@ const http = require("http");
 const net = require("net");
 
 const APP_DIR = path.join(__dirname, "..");
-const LEGACY_HOME = path.join(os.homedir(), ".remove-background-local");
-const HOME = process.env.RBL_HOME
-  || (fs.existsSync(LEGACY_HOME) ? LEGACY_HOME : path.join(os.homedir(), ".kirinuki"));
+const HOME = process.env.RBL_HOME || path.join(os.homedir(), ".kirinuki");
 const VENV_DIR = path.join(HOME, "venv");
 const IS_WIN = process.platform === "win32";
 const VENV_PY = IS_WIN ? path.join(VENV_DIR, "Scripts", "python.exe") : path.join(VENV_DIR, "bin", "python");
@@ -37,7 +35,7 @@ const LOG_FILE = path.join(HOME, "server.log");
 const PORT = process.env.PORT || "7860";
 const HOST = process.env.HOST || "127.0.0.1";
 const URL = `http://${HOST}:${PORT}`;
-const APP_NAME = "Remove Background Local";
+const APP_NAME = "Kirinuki";   // matches the UI and electron/main.js
 
 function log(m) { process.stdout.write(">> " + m + "\n"); }
 function err(m) { process.stderr.write(m + "\n"); }
@@ -81,7 +79,7 @@ function venvHealthy() {
   return fs.existsSync(VENV_PY) && spawnSync(VENV_PY, ["-c", "import sys"]).status === 0;
 }
 function depsInstalled() {
-  return spawnSync(VENV_PY, ["-c", "import fastapi, uvicorn, rembg, PIL, multipart, onnxruntime"]).status === 0;
+  return spawnSync(VENV_PY, ["-c", "import fastapi, uvicorn, rembg, PIL, multipart, onnxruntime, psutil"]).status === 0;
 }
 function ensureSetup() {
   const py = findPython();
@@ -139,8 +137,10 @@ function semverGt(a, b) {
   for (let i = 0; i < 3; i++) { if ((pa[i] || 0) > (pb[i] || 0)) return true; if ((pa[i] || 0) < (pb[i] || 0)) return false; }
   return false;
 }
-// On launch, pull a newer published version (best-effort, offline-safe).
-// Updates the global package in place so the app we start uses the new code.
+// On launch, say when a newer version exists. Only installs it if the user
+// opted in with RBL_AUTO_UPDATE: installing software unasked is not ours to
+// decide, and many machines forbid it outright. Note that an install applies
+// from the NEXT launch — this process already has the old code loaded.
 function autoUpdateIfNewer() {
   if (process.env.RBL_NO_UPDATE) return;
   const cur = currentVersion(); if (!cur) return;
@@ -150,7 +150,11 @@ function autoUpdateIfNewer() {
     if (r.status === 0) latest = (r.stdout || "").trim();
   } catch { return; }
   if (!latest || !semverGt(latest, cur)) return;
-  log(`Updating ${cur} -> ${latest} (then launching the new version)...`);
+  if (!process.env.RBL_AUTO_UPDATE) {
+    log(`A newer version is available (v${cur} -> v${latest}). Run \`kirinuki update\` to install it.`);
+    return;
+  }
+  log(`Updating ${cur} -> ${latest} (applies on the next launch)...`);
   npm(["install", "-g", "kirinuki@latest"]);
 }
 function readPid() { try { return parseInt(fs.readFileSync(PID_FILE, "utf8").trim(), 10) || 0; } catch { return 0; } }
@@ -210,14 +214,17 @@ function cmdModels(rest) {
   const r = run(VENV_PY, [path.join(APP_DIR, "server.py"), "models", ...rest]);
   process.exit(r.status || 0);
 }
+function startMenuDir() {
+  return path.join(process.env.APPDATA || os.homedir(), "Microsoft", "Windows", "Start Menu", "Programs");
+}
 function desktopInstalled() {
   if (process.platform === "darwin")
     return ["/Applications", path.join(os.homedir(), "Applications")]
-      .some((b) => fs.existsSync(path.join(b, "Remove Background Local.app")));
+      .some((b) => fs.existsSync(path.join(b, APP_NAME + ".app")));
   if (process.platform === "linux")
     return fs.existsSync(path.join(os.homedir(), ".local", "share", "applications", "kirinuki.desktop"));
   if (process.platform === "win32")
-    return fs.existsSync(path.join(process.env.APPDATA || os.homedir(), "Microsoft", "Windows", "Start Menu", "Programs", "Remove Background Local.lnk"));
+    return fs.existsSync(path.join(startMenuDir(), APP_NAME + ".lnk"));
   return false;
 }
 
@@ -239,7 +246,9 @@ function cmdUpdate() {
   log(`Updating v${before || "?"} -> v${latest || "latest"} ...`);
   const r = npm(["install", "-g", "kirinuki@latest"]);
   if (r.status !== 0) { err("Update failed. If you run it with npx, just use `npx -y kirinuki@latest`."); return; }
-  log(`Updated to v${currentVersion() || latest || "latest"}.`);
+  // Not currentVersion(): require() cached package.json before the update, so
+  // it would report the version we just replaced.
+  log(`Updated to v${latest || "latest"}. It takes effect on the next launch.`);
 
   if (desktopInstalled()) {
     log("Refreshing the installed desktop app...");
@@ -364,7 +373,7 @@ function installMac() {
   const srcApp = path.join(desktopDir, "node_modules", "electron", "dist", "Electron.app");
   if (!fs.existsSync(srcApp)) { err("Electron runtime not found."); process.exit(1); }
 
-  const destApp = path.join(appInstallDir(), "Remove Background Local.app");
+  const destApp = path.join(appInstallDir(), APP_NAME + ".app");
   log(`Building ${path.basename(destApp)} ...`);
   run("rm", ["-rf", destApp]);
   if (run("cp", ["-R", srcApp, destApp]).status !== 0) { err("Copy failed."); process.exit(1); }
@@ -399,10 +408,10 @@ function installLinux() {
   ensureElectron();   // so the launcher works when clicked
   const appsDir = path.join(os.homedir(), ".local", "share", "applications");
   fs.mkdirSync(appsDir, { recursive: true });
-  const icon = path.join(APP_DIR, "static", "logo-dark.png");
+  const icon = path.join(APP_DIR, "static", "logo.png");
   const exec = `"${process.execPath}" "${path.join(APP_DIR, "bin", "cli.js")}" desktop`;
   const entry = [
-    "[Desktop Entry]", "Type=Application", "Name=Remove Background Local",
+    "[Desktop Entry]", "Type=Application", `Name=${APP_NAME}`,
     "Comment=Remove image backgrounds locally", `Exec=${exec}`, `Icon=${icon}`,
     "Terminal=false", "Categories=Graphics;Utility;", "",
   ].join("\n");
@@ -411,7 +420,7 @@ function installLinux() {
   try { fs.chmodSync(f, 0o755); } catch {}
   spawnSync("update-desktop-database", [appsDir]);
   log("Installed launcher: " + f);
-  log("Look for 'Remove Background Local' in your application menu.");
+  log(`Look for '${APP_NAME}' in your application menu.`);
 }
 
 function installWindows() {
@@ -421,7 +430,7 @@ function installWindows() {
   const cli = path.join(APP_DIR, "bin", "cli.js");
   const programs = path.join(process.env.APPDATA || os.homedir(), "Microsoft", "Windows", "Start Menu", "Programs");
   try { fs.mkdirSync(programs, { recursive: true }); } catch {}
-  const lnk = path.join(programs, "Remove Background Local.lnk");
+  const lnk = path.join(programs, APP_NAME + ".lnk");
   const esc = (s) => s.replace(/'/g, "''");
   const ps = [
     "$s = (New-Object -ComObject WScript.Shell).CreateShortcut('" + esc(lnk) + "');",
@@ -440,14 +449,14 @@ function cmdDesktopUninstall() {
   let removed = false;
   // macOS
   for (const base of ["/Applications", path.join(os.homedir(), "Applications")]) {
-    const a = path.join(base, "Remove Background Local.app");
+    const a = path.join(base, APP_NAME + ".app");
     if (fs.existsSync(a)) { run("rm", ["-rf", a]); removed = true; log("Removed " + a); }
   }
   // Linux
   const dl = path.join(os.homedir(), ".local", "share", "applications", "kirinuki.desktop");
   if (fs.existsSync(dl)) { try { fs.unlinkSync(dl); removed = true; log("Removed " + dl); } catch {} }
   // Windows
-  const wl = path.join(process.env.APPDATA || os.homedir(), "Microsoft", "Windows", "Start Menu", "Programs", "Remove Background Local.lnk");
+  const wl = path.join(startMenuDir(), APP_NAME + ".lnk");
   if (fs.existsSync(wl)) { try { fs.unlinkSync(wl); removed = true; log("Removed " + wl); } catch {} }
   if (!removed) log("No installed app/shortcut found.");
 }

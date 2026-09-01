@@ -12,9 +12,7 @@ const os = require("os");
 
 const APP_NAME = "Kirinuki";
 const APP_DIR = process.env.RBL_APP || __dirname;
-const STATE_DIR = fs.existsSync(path.join(os.homedir(), ".remove-background-local"))
-  ? path.join(os.homedir(), ".remove-background-local")
-  : path.join(os.homedir(), ".kirinuki");
+const STATE_DIR = path.join(os.homedir(), ".kirinuki");
 const DEFAULT_VENV_PY = path.join(
   STATE_DIR, "venv",
   process.platform === "win32" ? "Scripts\\python.exe" : "bin/python"
