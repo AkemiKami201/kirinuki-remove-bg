@@ -227,6 +227,14 @@ Everything below is relative to the upstream project it was forked from.
   problem, since the path runs through the user's home directory and may
   contain spaces, so the real executable is used instead - the electron package
   records its name in `path.txt`.
+- Every launch printed `DEP0190: Passing args to a child process with shell
+  option true can lead to security vulnerabilities`. npm was run through
+  `npm.cmd`, a batch file needing `shell: true`, and a shell concatenates
+  arguments rather than escaping them. Nothing here was injectable - every
+  argument is a literal in the source - but the warning was on the screen at
+  each start and the shell was not needed: npm's entry point is a plain Node
+  script, so it is run through the current node binary instead. The shim on
+  PATH stays as a fallback for the layouts that put npm-cli.js elsewhere.
 - An interrupted Electron download could not be recovered from. The npm
   package and the ~100 MB binary it runs are fetched in two separate steps, and
   only the first is `npm install`; if the second is interrupted the package is

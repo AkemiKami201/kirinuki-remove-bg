@@ -26,8 +26,6 @@ const http = require("http");
 const net = require("net");
 
 const APP_DIR = path.join(__dirname, "..");
-// State (venv, pidfile, logs) lives here. The pre-rename directory is reused
-// when it exists so an existing install does not have to rebuild its venv.
 const LEGACY_HOME = path.join(os.homedir(), ".remove-background-local");
 const HOME = process.env.RBL_HOME
   || (fs.existsSync(LEGACY_HOME) ? LEGACY_HOME : path.join(os.homedir(), ".kirinuki"));
@@ -48,13 +46,28 @@ function run(cmd, args, opts) {
   return spawnSync(cmd, args, Object.assign({ stdio: "inherit", shell: needsShell }, opts || {}));
 }
 
+let _npmCli;
+function npmCli() {
+  if (_npmCli !== undefined) return _npmCli;
+  const dir = path.dirname(process.execPath);
+  const candidates = IS_WIN
+    ? [path.join(dir, "node_modules", "npm", "bin", "npm-cli.js")]
+    : [
+        path.join(dir, "..", "lib", "node_modules", "npm", "bin", "npm-cli.js"),
+        path.join(dir, "..", "share", "npm", "bin", "npm-cli.js"),
+      ];
+  _npmCli = candidates.find((p) => fs.existsSync(p)) || null;
+  return _npmCli;
+}
+
+function npm(args, opts) {
+  const cli = npmCli();
+  if (cli) return spawnSync(process.execPath, [cli, ...args], Object.assign({ stdio: "inherit" }, opts || {}));
+  return run(IS_WIN ? "npm.cmd" : "npm", args, opts);
+}
+
 function findPython() {
-  // 3.11 is the floor: rembg 2.0.80+ dropped 3.9 and 3.10, so accepting an
-  // older interpreter only moves the failure to a confusing pip error later.
   const CHECK = "import sys; sys.exit(0 if sys.version_info[:2] >= (3, 11) else 1)";
-  // On Windows `py -3` is the launcher installed with Python, and `python`
-  // is often a Microsoft Store alias that opens the Store instead of running
-  // anything - try the launcher first there.
   const candidates = IS_WIN
     ? [["py", ["-3"]], ["python", []], ["python3", []]]
     : [["python3", []], ["python", []]];
@@ -133,14 +146,12 @@ function autoUpdateIfNewer() {
   const cur = currentVersion(); if (!cur) return;
   let latest = null;
   try {
-    const r = spawnSync(IS_WIN ? "npm.cmd" : "npm", ["view", "kirinuki", "version"], { encoding: "utf8", timeout: 7000, shell: IS_WIN });
+    const r = npm(["view", "kirinuki", "version"], { stdio: "pipe", encoding: "utf8", timeout: 7000 });
     if (r.status === 0) latest = (r.stdout || "").trim();
   } catch { return; }
   if (!latest || !semverGt(latest, cur)) return;
   log(`Updating ${cur} -> ${latest} (then launching the new version)...`);
-  // Updates the global package in place, so the app we launch next uses the new
-  // code. The installed standalone .app is refreshed separately by `kirinuki update`.
-  run(IS_WIN ? "npm.cmd" : "npm", ["install", "-g", "kirinuki@latest"]);
+  npm(["install", "-g", "kirinuki@latest"]);
 }
 function readPid() { try { return parseInt(fs.readFileSync(PID_FILE, "utf8").trim(), 10) || 0; } catch { return 0; } }
 function pidAlive(pid) { try { process.kill(pid, 0); return true; } catch { return false; } }
@@ -212,7 +223,7 @@ function desktopInstalled() {
 
 function npmLatest() {
   try {
-    const r = spawnSync(IS_WIN ? "npm.cmd" : "npm", ["view", "kirinuki", "version"], { encoding: "utf8", timeout: 8000, shell: IS_WIN });
+    const r = npm(["view", "kirinuki", "version"], { stdio: "pipe", encoding: "utf8", timeout: 8000 });
     return r.status === 0 ? (r.stdout || "").trim() : null;
   } catch { return null; }
 }
@@ -226,11 +237,10 @@ function cmdUpdate() {
     return;
   }
   log(`Updating v${before || "?"} -> v${latest || "latest"} ...`);
-  const r = run(IS_WIN ? "npm.cmd" : "npm", ["install", "-g", "kirinuki@latest"]);
+  const r = npm(["install", "-g", "kirinuki@latest"]);
   if (r.status !== 0) { err("Update failed. If you run it with npx, just use `npx -y kirinuki@latest`."); return; }
   log(`Updated to v${currentVersion() || latest || "latest"}.`);
-  // Refresh the installed desktop app so it runs the new code (macOS rebuilds the
-  // .app; Linux/Windows launchers already point at the package).
+
   if (desktopInstalled()) {
     log("Refreshing the installed desktop app...");
     const ri = run(IS_WIN ? "kirinuki.cmd" : "kirinuki", ["desktop", "install"]);
@@ -248,7 +258,7 @@ function electronExecutable(desktopDir) {
       const exe = path.join(pkgDir, "dist", rel);
       if (fs.existsSync(exe)) return exe;
     }
-  } catch (e) { /* no path.txt yet; the binary step below may still fetch it */ }
+  } catch (e) { }
   const fallback = path.join(pkgDir, "dist", IS_WIN ? "electron.exe" : "electron");
   return fs.existsSync(fallback) ? fallback : null;
 }
@@ -275,7 +285,7 @@ function ensureElectron() {
     if (!fs.existsSync(path.join(desktopDir, "package.json"))) {
       fs.writeFileSync(path.join(desktopDir, "package.json"), JSON.stringify({ name: "rbl-desktop", private: true }, null, 2));
     }
-    npmResult = run(IS_WIN ? "npm.cmd" : "npm", ["install", "electron@latest"], { cwd: desktopDir });
+    npmResult = npm(["install", "electron@latest"], { cwd: desktopDir });
     electronBin = electronExecutable(desktopDir);
     if (electronBin) return { desktopDir, electronBin };
   }

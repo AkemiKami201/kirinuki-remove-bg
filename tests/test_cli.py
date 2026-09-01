@@ -104,3 +104,36 @@ def test_the_failure_message_names_the_real_cause(cli):
     assert "rmdir /s /q" in setup and "rm -rf" in setup, (
         "and give the removal command that actually clears the state"
     )
+
+
+def test_npm_runs_without_a_shell(cli):
+    """Spawning npm.cmd needs shell:true on Windows, and passing arguments with
+    the shell on raises DEP0190 on every launch: a shell concatenates arguments
+    rather than escaping them. npm's entry point is a plain Node script, so
+    running it through the current node binary needs no shell at all."""
+    body = body_of(cli, "function npm(args, opts)")
+    assert "process.execPath" in body, "npm-cli.js is run by node directly"
+
+    resolver = body_of(cli, "function npmCli(")
+    assert "npm-cli.js" in resolver
+    assert "IS_WIN" in resolver, "the layout differs between Windows and the rest"
+
+
+def test_npm_still_works_when_its_entry_point_is_missing(cli):
+    """Distributions repackage npm and may put it somewhere unexpected, in
+    which case the shim on PATH is still the right answer."""
+    body = body_of(cli, "function npm(args, opts)")
+    assert 'run(IS_WIN ? "npm.cmd" : "npm", args, opts)' in body, (
+        "fall back rather than failing when npm-cli.js is not found"
+    )
+
+
+def test_no_npm_call_passes_arguments_through_a_shell(cli):
+    """This is what DEP0190 warns about. Every npm invocation must go through
+    npm(), leaving exactly one mention of the shim: the fallback inside npm()
+    itself, for when npm-cli.js cannot be found."""
+    assert cli.count('"npm.cmd"') == 1, (
+        "npm calls go through npm(); only its own fallback may name the shim"
+    )
+    fallback = body_of(cli, "function npm(args, opts)")
+    assert '"npm.cmd"' in fallback, "and that one mention is the fallback"
