@@ -250,7 +250,7 @@
   /* Work area */
   .workarea { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
   .fixed-top {
-    flex: 0 1 auto; min-height: 0; max-height: 100%; overflow-y: auto;
+    flex: 0 0 auto; max-height: 65%; overflow-y: auto;
     padding: var(--sp-4) var(--sp-6) var(--sp-4); border-bottom: 1px solid var(--border); background: var(--bg);
   }
   .fixed-top.menu-open { overflow: visible; }

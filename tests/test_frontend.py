@@ -539,6 +539,27 @@ def test_backdrop_change_does_not_rewrite_the_blobs():
     )
 
 
+def test_drop_zone_is_never_squeezed_by_a_long_result_list():
+    """A drag is only accepted over the drop zone itself, so the panel holding
+    it must not shrink to make room for the cards below. It caps its height and
+    scrolls instead, which keeps the advanced options reachable on a short
+    screen without the list ever eating the drop target."""
+    css = css_text()
+    block = css[css.index("  .fixed-top {"):]
+    block = block[: block.index("\n  }")]
+    assert "flex: 0 0 auto" in block, (
+        "the panel must not be shrinkable; a flex-shrink of 1 lets the result "
+        "list squeeze the drop zone out of view"
+    )
+    assert "overflow-y: auto" in block, "it must scroll rather than clip"
+    assert "max-height" in block, (
+        "without a cap the panel can push the results off-screen"
+    )
+    assert "min-height: min-content" not in block, (
+        "min-content would win over max-height and defeat the cap"
+    )
+
+
 def test_reprocessing_one_image_does_not_rebuild_the_list():
     """renderResults() clears every card and appends them again, so the browser
     loses the scroll position. Doing that for a single job's state change threw
