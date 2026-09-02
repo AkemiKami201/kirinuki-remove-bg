@@ -425,6 +425,26 @@ def test_static_assets_referenced_by_the_page_are_served(client):
 def test_stylesheet_and_script_have_sensible_content_types(client):
     assert "text/css" in client.get("/static/css/app.css").headers["content-type"]
     assert "javascript" in client.get("/static/js/app.js").headers["content-type"]
+def test_static_assets_must_be_revalidated_before_reuse(client):
+    """The UI is served from fixed URLs with no hash or version in them, so a
+    cached app.js is indistinguishable from a current one. Without an explicit
+    Cache-Control the browser applies its own freshness heuristic and can skip
+    the request entirely -- which on a desktop build, whose cache lives in the
+    app profile and survives restarts, served the previous release's interface
+    after an update."""
+    for ref in ("/static/js/app.js", "/static/css/app.css"):
+        cache = client.get(ref).headers.get("cache-control", "")
+        assert "no-cache" in cache, f"{ref} may be reused without asking the server"
+
+
+def test_revalidation_still_answers_304_for_an_unchanged_asset(client):
+    """no-cache requires a check, not a re-download: an unchanged file must
+    still come back as 304 so the bytes are not sent again."""
+    first = client.get("/static/js/app.js")
+    etag = first.headers["etag"]
+    again = client.get("/static/js/app.js", headers={"If-None-Match": etag})
+    assert again.status_code == 304
+    assert "no-cache" in again.headers.get("cache-control", "")
 
 
 # ---------------------------------------------------------------------------

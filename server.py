@@ -591,8 +591,31 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="kirinuki", version=APP_VERSION, lifespan=lifespan)
 
+class RevalidatingStaticFiles(StaticFiles):
+    """StaticFiles that makes the browser check before reusing a cached file.
+
+    The UI is loaded from fixed URLs with no version or hash in them, so a
+    cached copy of app.js or app.css is indistinguishable from a current one.
+    Starlette sends an ETag and Last-Modified but no Cache-Control, which
+    leaves the freshness lifetime to the browser's own heuristic -- and a
+    heuristically fresh file is reused without asking the server at all. On a
+    packaged desktop build that cache lives in the app's own profile and
+    survives restarts, so an updated app kept serving the previous release's
+    interface until the profile was cleared by hand.
+
+    `no-cache` still allows caching; it requires revalidation first, so the
+    ETag that is already being sent settles it with a 304 and the body is only
+    re-sent when the file really changed.
+    """
+
+    def file_response(self, *args, **kwargs) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers.setdefault("Cache-Control", "no-cache, must-revalidate")
+        return response
+
+
 if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    app.mount("/static", RevalidatingStaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 @app.get("/")
