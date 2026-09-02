@@ -336,7 +336,35 @@ async function deleteModelUI(key) {
 
 //  View nav 
 document.querySelectorAll(".nav-tab").forEach(tab => tab.addEventListener("click", () => switchView(tab.dataset.view)));
-function switchView(name) { document.querySelectorAll(".nav-tab").forEach(t => t.classList.toggle("active", t.dataset.view === name)); $("view-editor").hidden = name !== "editor"; $("view-models").hidden = name !== "models"; }
+function switchView(name) {
+  document.querySelectorAll(".nav-tab").forEach(t => t.classList.toggle("active", t.dataset.view === name));
+  $("view-editor").hidden = name !== "editor";
+  $("view-models").hidden = name !== "models";
+
+  if (name === "models") startModelsPolling(); else stopModelsPolling();
+}
+
+let modelsTimer = null;
+const MODELS_POLL_MS = 15000;
+
+function refreshModelsPage() {
+  return loadModels().catch(e => warn("refreshing the models page", e));
+}
+
+function startModelsPolling() {
+  refreshModelsPage();
+  if (modelsTimer == null) modelsTimer = setInterval(refreshModelsPage, MODELS_POLL_MS);
+}
+
+function stopModelsPolling() {
+  if (modelsTimer != null) { clearInterval(modelsTimer); modelsTimer = null; }
+}
+
+function modelsPageVisible() { return !$("view-models").hidden; }
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) stopModelsPolling();
+  else if (modelsPageVisible()) startModelsPolling();
+});
 
 //  Background swatches
 function buildSwatches(container, current, onPick, small) {
