@@ -539,6 +539,34 @@ def test_backdrop_change_does_not_rewrite_the_blobs():
     )
 
 
+def test_reprocessing_one_image_does_not_rebuild_the_list():
+    """renderResults() clears every card and appends them again, so the browser
+    loses the scroll position. Doing that for a single job's state change threw
+    the reader back to the top of a long session -- on Reprocess, and again on
+    every transition as the queue ran."""
+    js = script_body()
+    assert "function refreshCard(" in js, "a single-card refresh helper must exist"
+
+    start = js.index("function reprocessJob(")
+    body = js[start : js.index("\n}", start)]
+    assert "refreshCard(job)" in body, "Reprocess must refresh just its own card"
+    assert "renderAll()" not in body, (
+        "reprocessing one image must not rebuild the whole list"
+    )
+
+    start = js.index("async function runJob(")
+    body = js[start : js.index("\n}", start)]
+    assert "renderAll()" not in body, (
+        "a job's state transitions must not rebuild the list"
+    )
+
+    start = js.index("async function pump()")
+    body = js[start : js.index("\nasync function runJob", start)]
+    assert "renderAll()" not in body, (
+        "draining the queue must not rebuild the list and undo the per-card work"
+    )
+
+
 def test_custom_colour_input_survives_its_own_events():
     """The native colour picker fires `input` continuously while it is open. If
     a handler rebuilds the swatch row, the live <input> is removed mid-drag and

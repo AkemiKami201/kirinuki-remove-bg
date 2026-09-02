@@ -534,13 +534,13 @@ async function pump() {
         warn(`processing ${job.name}`, e);
         toast(e.message || "Error", "err");
       }
-      renderAll();
+      refreshCard(job); renderSidebar();
     }
   } finally {
     processingJobId = null;
     processing = false;
     setStatus("ready");
-    renderAll();
+    renderQueueInfo();
   }
 }
 
@@ -551,11 +551,11 @@ async function runJob(job) {
     // Already on disk means we are only reading it into RAM, which is a very
     // different wait from a first-time download: say which one it is.
     job.state = st.downloaded ? "loading-model" : "downloading-model";
-    renderAll();
+    refreshCard(job);
     setStatus(st.downloaded ? `loading ${job.model} into memory…` : `downloading ${job.model}…`, true);
     await waitForModel(job.model);
   }
-  job.state = "processing"; renderAll(); setStatus("processing…", true);
+  job.state = "processing"; refreshCard(job); setStatus("processing…", true);
   const fd = new FormData(); fd.append("image", job.file); fd.append("model", job.model);
   if (job.transient || job.model !== selectedModel) fd.append("transient", "true");
   if ($("vm-enabled").checked) fd.append("vitmatte", "true");
@@ -591,7 +591,7 @@ function reprocessJob(job, newModel) {
   if (job.outUrl) { URL.revokeObjectURL(job.outUrl); job.outUrl = null; }
   if (job.outPreview) { URL.revokeObjectURL(job.outPreview); job.outPreview = null; }
   job.outBlob = null; job.ms = null; job.outKB = null;
-  renderAll(); pump();
+  refreshCard(job); renderSidebar(); pump();
 }
 
 //  Export
@@ -917,6 +917,12 @@ function renderResults() {
   const empty = $("results-empty");
   empty.style.display = visible.length ? "none" : "flex";
   $("empty-text").textContent = inView.length ? "All cards closed. Click an image in the sidebar to reopen it." : "Nothing here yet. Drop an image to remove its background.";
+  renderQueueInfo();
+}
+
+function renderQueueInfo() {
+  const inView = jobs.filter(j => j.sessionId === viewedSessionId);
+  const visible = inView.filter(j => !j.hidden);
   const done = inView.filter(j => j.state === "done").length;
   const pending = inView.filter(j => ["queued", "processing", "loading-model", "downloading-model"].includes(j.state)).length;
   $("download-all").disabled = done === 0;
@@ -959,6 +965,18 @@ function paintCardBackdrop(job) {
   const eff = effectiveBg(job);
   cell.classList.toggle("checker", eff === "checker");
   cell.style.background = eff === "checker" ? "" : eff;
+}
+
+function refreshCard(job) {
+  const card = $("card-" + job.id);
+  if (card) {
+    card.replaceWith(renderCard(job));
+    renderQueueInfo();
+    return;
+  }
+
+  if (job.hidden || job.sessionId !== viewedSessionId) { renderQueueInfo(); return; }
+  renderAll();
 }
 
 function renderCard(job) {
