@@ -57,7 +57,7 @@ function stopServer() {
     } else {
       server.kill();
     }
-  } catch (e) { /* the process may already be gone */ }
+  } catch (e) { }
   server = null;
 }
 
@@ -89,7 +89,7 @@ async function createWindow() {
 
 app.whenReady().then(async () => {
   if (process.platform === "darwin" && app.dock && !app.isPackaged) {
-    try { app.dock.setIcon(nativeImage.createFromPath(ICON)); } catch (e) { /* ignore */ }
+    try { app.dock.setIcon(nativeImage.createFromPath(ICON)); } catch (e) { }
   }
   if (!(await isUp())) startServer();
   createWindow();

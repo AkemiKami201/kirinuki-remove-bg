@@ -294,28 +294,10 @@ MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 
 # Set RBL_MAX_PROCESS_PX=0 to disable and always process at full resolution.
 MAX_PROCESS_PX = int(os.environ.get("RBL_MAX_PROCESS_PX", "1600"))
-
-# Upper bound on decoded pixels, checked from the header before the decode.
-# 120 MP covers any real camera (a 100 MP medium format included) and stops a
-# small file that expands to gigabytes of RGBA.
 MAX_IMAGE_PIXELS = int(os.environ.get("RBL_MAX_IMAGE_PIXELS", str(120_000_000)))
-
-# Refuse a request when the estimated peak would leave the machine with less
-# than this much RAM free.
 MEMORY_HEADROOM_MB = int(os.environ.get("RBL_MEMORY_HEADROOM_MB", "700"))
-
 # Carry EXIF, ICC profile, DPI and text chunks from the source into the result.
 PRESERVE_METADATA = os.environ.get("RBL_PRESERVE_METADATA", "1") == "1"
-
-# How long an idle (unused) model session stays in RAM before being evicted.
-# Set to 0 to disable the background evictor entirely.
-#
-# Evicting is not free: reloading a BiRefNet model means reading ~930 MB back
-# from disk, which is a few seconds on an SSD but was measured near a minute on
-# a mechanical drive. Ten minutes was short enough that a normal pause between
-# batches paid that cost again, so the wait people blamed on the model was
-# really the model being re-read. Thirty minutes is long enough to sit through
-# a coffee break and still bounded, and the Models page can free one on demand.
 MODEL_IDLE_TTL = int(os.environ.get("RBL_MODEL_IDLE_TTL", "1800"))
 # How often the evictor wakes up to check for idle models.
 MODEL_EVICTOR_INTERVAL = int(os.environ.get("RBL_MODEL_EVICTOR_INTERVAL", "30"))
@@ -340,7 +322,7 @@ sessions_class_by_name = {}
 for _cls in sessions_class:
     try:
         sessions_class_by_name[_cls.name()] = _cls
-    except Exception:  # noqa: BLE001 - a session that needs args is not one we expose
+    except Exception:
         pass
 
 
@@ -390,8 +372,6 @@ def download_progress(name: str):
     if not total:
         return None
     try:
-        # Temp files land in the model's own directory (rembg >= 2.0.80); older
-        # versions dropped them straight into the flat legacy dir.
         tmps = glob.glob(os.path.join(model_dir(name), "tmp*"))
         tmps += glob.glob(os.path.join(LEGACY_HOME, "tmp*"))
         if not tmps:
@@ -458,7 +438,7 @@ async def _evictor_loop() -> None:
             _evictor_sweep()
         except asyncio.CancelledError:
             raise
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.exception("Model evictor loop error (continuing)")
 
 
@@ -498,10 +478,6 @@ def _session_options():
         return opts
     opts.enable_cpu_mem_arena = False
     opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-    # The thread count is left to onnxruntime. Capping it at two was measured
-    # to cost 18% of the speed (27.8s against 22.7s on four cores) and saved no
-    # memory at all: the peak comes from the network's activations, not from
-    # how many threads walk them.
     return opts
 
 
@@ -545,7 +521,7 @@ async def ensure_session(model_name: str):
             session = await run_in_threadpool(
                 new_session, model_name, sess_opts=_session_options(), providers=PROVIDERS
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             _MODEL_STATE[model_name] = "error"
             _MODEL_ERROR[model_name] = str(exc)
             log.exception("Failed to load model %s", model_name)
@@ -594,7 +570,7 @@ async def _stop_evictor() -> None:
         _EVICTOR_TASK.cancel()
         try:
             await _EVICTOR_TASK
-        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+        except (asyncio.CancelledError, Exception):
             pass
         _EVICTOR_TASK = None
 
@@ -690,7 +666,7 @@ async def warmup(model: str = Form(DEFAULT_MODEL)):
             try:
                 await ensure_session(model)
             except Exception:
-                pass  # state already recorded in _MODEL_STATE / _MODEL_ERROR
+                pass
         asyncio.create_task(_bg())
     return {"model": model, "state": state_of(model), "size_mb": MODEL_SIZES_MB.get(model)}
 
@@ -754,7 +730,7 @@ def _cleanup_partial_downloads(model: str) -> int:
             freed += size
             log.info("Removed partial download %s (%.0f MB)", tmp, size / 1048576)
         except OSError:
-            pass  # best effort: a temp file we cannot remove must not fail the request
+            pass
     return freed
 
 
@@ -795,7 +771,7 @@ def available_memory_mb() -> float | None:
     if psutil is not None:
         try:
             return psutil.virtual_memory().available / 1048576
-        except Exception:  # noqa: BLE001 - a psutil failure must not break a request
+        except Exception:
             pass
     try:
         with open("/proc/meminfo", "r") as fh:
@@ -806,11 +782,6 @@ def available_memory_mb() -> float | None:
         pass
     return None
 
-
-# Peak RSS for one inference, in MB, measured on this project with the tuned
-# session options above (CPU, onnxruntime 1.29), at a 1600px working copy.
-# These are the segmentation network's own peak; the request total adds the
-# constant and per-megapixel terms in estimate_peak_mb below.
 MODEL_PEAK_MB = {
     "isnet-general-use": 1100,
     "u2net": 1100,
@@ -823,9 +794,6 @@ MODEL_PEAK_MB = {
     "birefnet-massive": 6800,
     "birefnet-hrsod": 6800,
     "birefnet-cod": 6800,
-    # Measured at 8501-8608 MB plain and 8723 with vitmatte, against an
-    # estimate of 8179: the old 7100 left the guard ~600 MB short on the model
-    # that peaks highest, which is where being short matters most.
     "bria-rmbg": 7750,
 }
 
@@ -839,7 +807,7 @@ def process_rss_mb() -> float:
     if psutil is not None:
         try:
             return psutil.Process().memory_info().rss / 1048576
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
     try:
         with open("/proc/self/status", "r") as fh:
@@ -867,14 +835,6 @@ def estimate_peak_mb(model: str, px: int, vitmatte: bool, decontaminate: bool,
     base = 260 + model_mb + mp * per_mp
 
     if vitmatte:
-        # A max(), not a sum: rembg runs vitmatte_alpha() only after
-        # session.predict() has returned, so the two never hold their buffers
-        # at once. On a heavy model the segmentation peak already dominates
-        # (birefnet-dis: 7711 MB plain, 7870 with vitmatte); on a light one
-        # vitmatte is what sets the peak (u2netp: 557 -> 2565).
-        # Measured on u2netp at 0.64/1.44/2.56 MP: 2244/2435/2585 MB, which
-        # fits 2151 + 175*MP. The old 2500 + 900*MP claimed 5064 MB at 2.56 MP,
-        # nearly double the worst light model measured (2750).
         base = max(base, 260 + 2000 + mp * 250)
     elif alpha_matting:
         base += mp * 500
@@ -1159,9 +1119,7 @@ async def remove_background(
     t0 = time.time()
 
     # A non-transient request means this is the model the user is working with,
-    # so pin it. Without this the pin only moved when the dropdown was clicked:
-    # process with anything else and the evictor reclaimed it mid-session, and
-    # the next image paid a full reload from disk for no reason.
+    # so pin it.
     if not transient:
         global _PINNED_MODEL
         _PINNED_MODEL = model
@@ -1336,7 +1294,7 @@ def _batch_cli(args) -> int:
                 out_path.write_bytes(_encode_png(out, meta))
             done += 1
             print(f"  [{i}/{len(files)}] {path.name} -> {out_path.name}")
-        except Exception as exc:  # noqa: BLE001 - one bad file must not stop the run
+        except Exception as exc:
             failed += 1
             print(f"  [{i}/{len(files)}] {path.name} FAILED: {exc}")
         finally:

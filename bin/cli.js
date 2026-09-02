@@ -138,10 +138,7 @@ function semverGt(a, b) {
   for (let i = 0; i < 3; i++) { if ((pa[i] || 0) > (pb[i] || 0)) return true; if ((pa[i] || 0) < (pb[i] || 0)) return false; }
   return false;
 }
-// On launch, say when a newer version exists. Only installs it if the user
-// opted in with RBL_AUTO_UPDATE: installing software unasked is not ours to
-// decide, and many machines forbid it outright. Note that an install applies
-// from the NEXT launch — this process already has the old code loaded.
+
 function autoUpdateIfNewer() {
   if (process.env.RBL_NO_UPDATE) return;
   const cur = currentVersion(); if (!cur) return;
@@ -300,8 +297,6 @@ function ensureElectron() {
     if (electronBin) return { desktopDir, electronBin };
   }
 
-  // The package is present but its binary is not, so npm has nothing left to
-  // do and will keep saying "up to date". Run the package's own downloader.
   if (npmResult.status === 0 && fetchElectronBinary(desktopDir)) {
     electronBin = electronExecutable(desktopDir);
     if (electronBin) return { desktopDir, electronBin };
@@ -410,8 +405,6 @@ function installLinux() {
   const appsDir = path.join(os.homedir(), ".local", "share", "applications");
   fs.mkdirSync(appsDir, { recursive: true });
   const icon = path.join(APP_DIR, "static", "logo.png");
-  // A missing icon is written into the .desktop without complaint and shows up
-  // as a blank launcher - which is how the logo-dark.png typo went unnoticed.
   if (!fs.existsSync(icon)) log("Icon file missing (" + icon + "); the launcher will have no icon.");
   const exec = `"${process.execPath}" "${path.join(APP_DIR, "bin", "cli.js")}" desktop`;
   const entry = [
@@ -437,8 +430,6 @@ function installWindows() {
   const lnk = path.join(programs, APP_NAME + ".lnk");
   if (!fs.existsSync(ico)) log("Icon file missing (" + ico + "); Windows will use a generic one.");
   const esc = (s) => s.replace(/'/g, "''");
-  // Stop + try/catch: a COM failure otherwise prints its error and still exits
-  // 0, which reported success with no shortcut written.
   const ps = [
     "$ErrorActionPreference = 'Stop';",
     "try {",
@@ -506,17 +497,13 @@ function dirSizeBytes(dir) {
   }
   return total;
 }
-// MB rounds a small cache down to a misleading "0 MB", and GB reads better
-// once the models are in play.
+
 function fmtSize(bytes) {
   if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + " GB";
   if (bytes >= 1048576) return (bytes / 1048576).toFixed(0) + " MB";
   return Math.max(1, Math.round(bytes / 1024)) + " KB";
 }
 
-// Ask rembg where its cache is rather than assuming ~/.rembg: U2NET_HOME,
-// REMBG_HOME and XDG_DATA_HOME all move it, and guessing would either miss the
-// models or delete an unrelated directory.
 function modelCacheDirs() {
   const dirs = [];
   if (fs.existsSync(VENV_PY)) {
@@ -528,9 +515,7 @@ function modelCacheDirs() {
       }
     }
   }
-  // The venv may already be gone or broken, so mirror rembg's own resolution
-  // rather than hardcoding ~/.rembg: U2NET_HOME wins outright, REMBG_HOME and
-  // XDG_DATA_HOME move it, and a wrong guess here deletes the wrong directory.
+
   if (!dirs.length) {
     const home = os.homedir();
     const xdg = process.env.XDG_DATA_HOME;
@@ -550,8 +535,6 @@ function rmrf(target) {
   catch (e) { err("Could not remove " + target + ": " + e.message); return false; }
 }
 
-// Deleting gigabytes is not undoable, so it takes an explicit --yes rather than
-// a prompt: the command is scriptable, and a prompt would hang a piped shell.
 function cmdUninstall(rest) {
   const flags = rest.map((a) => a.toLowerCase());
   const assumeYes = flags.includes("--yes") || flags.includes("-y");
@@ -562,8 +545,6 @@ function cmdUninstall(rest) {
   const pid = readPid();
   if (pid && pidAlive(pid)) { log("Stopping the background server first..."); cmdStop(); }
 
-  // RBL_HOME is user-set and could point anywhere, including the installed
-  // package or the repository. Deleting either takes the app itself with it.
   const inside = (parent, child) => {
     const rel = path.relative(path.resolve(parent), path.resolve(child));
     return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
