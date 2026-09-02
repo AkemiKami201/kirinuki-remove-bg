@@ -62,7 +62,7 @@ function stopServer() {
 }
 
 const SPLASH =
-  "data:text/html," + encodeURIComponent(
+  "data:text/html;charset=utf-8," + encodeURIComponent(
     "<body style='margin:0;background:#0f0f12;color:#9b9bab;font-family:-apple-system,sans-serif;" +
     "display:flex;align-items:center;justify-content:center;height:100vh'>" +
     "<div style='text-align:center'><div style='font-size:18px;color:#e7e7ee'>Kirinuki</div>" +
@@ -82,7 +82,7 @@ async function createWindow() {
   win.loadURL(SPLASH);
   const ok = await waitUp();
   if (ok) win.loadURL(URL);
-  else win.loadURL("data:text/html," + encodeURIComponent(
+  else win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(
     "<body style='margin:0;background:#0f0f12;color:#ff6b6b;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh'>" +
     "Could not start the server.</body>"));
 }
