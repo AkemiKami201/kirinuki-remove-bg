@@ -512,7 +512,7 @@ def test_backdrop_change_does_not_rebuild_every_card():
     assert "function paintCardBackdrop(" in js, (
         "a single-card repaint helper must exist"
     )
-    start = js.index("const pickBg = (bg) => {")
+    start = js.index("const pickBg = (bg, live) => {")
     body = js[start : js.index("};", start)]
     assert "paintCardBackdrop(job)" in body
     assert "renderResults()" not in body, (
@@ -531,12 +531,36 @@ def test_backdrop_change_does_not_rewrite_the_blobs():
     the disk on every click."""
     js = script_body()
     assert "async function idbPatch(" in js, "a partial update helper must exist"
-    start = js.index("const pickBg = (bg) => {")
+    start = js.index("const pickBg = (bg, live) => {")
     body = js[start : js.index("};", start)]
     assert "idbPatch(" in body, "the swatch must patch, not re-put the record"
     assert "persistJob(" not in body, (
         "persistJob writes both blobs; use idbPatch for a colour change"
     )
+
+
+def test_custom_colour_input_survives_its_own_events():
+    """The native colour picker fires `input` continuously while it is open. If
+    a handler rebuilds the swatch row, the live <input> is removed mid-drag and
+    the picker dies with it -- clicking a colour appeared to do nothing at all.
+    The row must be left standing while the picker streams."""
+    js = script_body()
+    start = js.index("function buildSwatches(")
+    body = js[start : js.index("\n}", start)]
+    assert "markActive(" in body, (
+        "the highlight must move in place rather than by rebuilding the row"
+    )
+    assert 'onPick(e.target.value, true)' in body, (
+        "streamed values must be flagged so callers skip the rebuild"
+    )
+    assert 'inp.addEventListener("change"' in body, (
+        "the committed value needs a change listener; input alone never settles"
+    )
+
+    for caller in ("const pickBg = (bg, live) => {", "buildSwatches($(\"global-bg\")"):
+        start = js.index(caller)
+        chunk = js[start : start + 600]
+        assert "live" in chunk, f"{caller} must honour the live flag"
 
 
 def test_result_cards_have_no_composited_blur():

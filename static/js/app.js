@@ -369,22 +369,34 @@ document.addEventListener("visibilitychange", () => {
 //  Background swatches
 function buildSwatches(container, current, onPick, small) {
   container.querySelectorAll(".swatch").forEach(s => s.remove());
+  const marks = [];
   for (const sw of SWATCHES) {
     const b = document.createElement("button");
-    b.className = "swatch" + (small ? " sm" : "") + (sw.cls ? " " + sw.cls : "") + (current === sw.bg ? " active" : "");
+    b.className = "swatch" + (small ? " sm" : "") + (sw.cls ? " " + sw.cls : "");
     if (!sw.cls) b.style.background = sw.bg; b.title = sw.title || sw.bg;
     b.addEventListener("click", () => onPick(sw.bg)); container.appendChild(b);
+    marks.push([b, sw.bg]);
   }
   const custom = document.createElement("span");
-  custom.className = "swatch custom" + (small ? " sm" : "") + (current && !SWATCHES.some(s => s.bg === current) ? " active" : "");
+  custom.className = "swatch custom" + (small ? " sm" : "");
   custom.title = "Custom color";
   const inp = document.createElement("input"); inp.type = "color"; inp.value = (current && current.startsWith && current.startsWith("#")) ? current : "#ff8800";
-  inp.addEventListener("input", (e) => onPick(e.target.value)); custom.appendChild(inp); container.appendChild(custom);
+
+  const markActive = (bg) => {
+    for (const [el, val] of marks) el.classList.toggle("active", bg === val);
+    custom.classList.toggle("active", !!bg && !SWATCHES.some(s => s.bg === bg));
+  };
+  markActive(current);
+  // `input` streams while the picker is open, `change` fires once it is
+  // dismissed. The first drives the live preview, the second commits.
+  inp.addEventListener("input", (e) => { markActive(e.target.value); onPick(e.target.value, true); });
+  inp.addEventListener("change", (e) => onPick(e.target.value, false));
+  custom.appendChild(inp); container.appendChild(custom);
 }
 function buildGlobalSwatches() {
-  buildSwatches($("global-bg"), resultBg, (bg) => {
+  buildSwatches($("global-bg"), resultBg, (bg, live) => {
     resultBg = bg;
-    buildGlobalSwatches();
+    if (!live) buildGlobalSwatches();
     for (const j of jobs) if (j.state === "done") paintCardBackdrop(j);
     updateMetadataNote();
   }, false);
@@ -981,10 +993,12 @@ function renderCard(job) {
     const foot = document.createElement("div"); foot.className = "card-foot";
     const bgGrp = document.createElement("div"); bgGrp.className = "grp";
     const lbl = document.createElement("span"); lbl.className = "glbl"; lbl.textContent = "Background:"; bgGrp.appendChild(lbl);
-    const pickBg = (bg) => {
+
+    const pickBg = (bg, live) => {
       job.bg = bg;
-      idbPatch(job.id, { bg }).catch(e => warn("saving the backdrop", e));
       paintCardBackdrop(job);
+      if (live) return;
+      idbPatch(job.id, { bg }).catch(e => warn("saving the backdrop", e));
       buildSwatches(bgGrp, job.bg != null ? job.bg : "__none__", pickBg, true);
     };
     buildSwatches(bgGrp, job.bg != null ? job.bg : "__none__", pickBg, true);
