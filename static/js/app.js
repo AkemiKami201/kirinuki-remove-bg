@@ -249,8 +249,17 @@ function renderModelDropdown() {
     menu.appendChild(opt);
   }
 }
-function openDropdown() { $("model-menu").hidden = false; }
-function closeDropdown() { $("model-menu").hidden = true; }
+
+function setDropdownOpen(open) {
+  $("model-menu").hidden = !open;
+  const panel = $("model-dd").closest(".fixed-top");
+  if (!panel) return;
+
+  if (open) panel.scrollTop = 0;
+  panel.classList.toggle("menu-open", open);
+}
+function openDropdown() { setDropdownOpen(true); }
+function closeDropdown() { setDropdownOpen(false); }
 $("model-trigger").addEventListener("click", (e) => { e.stopPropagation(); const m = $("model-menu"); m.hidden ? openDropdown() : closeDropdown(); });
 document.addEventListener("click", (e) => { if (!$("model-dd").contains(e.target)) closeDropdown(); });
 async function maybeWarm(model) { try { const s = await getStatus(model); if (s.state !== "ready") { toast(`Preparing ${INFO[model]?.title || model} in the background…`); warmup(model); } } catch (e) { warn("warming model", e); } }
