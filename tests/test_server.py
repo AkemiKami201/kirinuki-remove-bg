@@ -1199,3 +1199,43 @@ def test_vitmatte_does_not_stack_on_the_segmentation_peak():
     assert light_vit > light_plain           # measured 557 -> 2565
     # And it must not run away: the old term claimed 5064 MB against 2565 measured.
     assert light_vit < 3500
+
+
+def test_readme_model_count_matches_the_code():
+    """The count has drifted twice now: adding a model means editing prose in
+    several places, and a stale number is the kind of thing a reader checks
+    against the Models page and stops trusting the rest."""
+    import os
+    import re
+    import server
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    readme = open(os.path.join(root, "README.md"), encoding="utf-8").read()
+
+    n = len(server.AVAILABLE_MODELS)
+    words = {11: "eleven", 12: "twelve", 13: "thirteen", 14: "fourteen"}
+    assert n in words, f"add the word for {n} to this test"
+
+    # Drop the lines about the upstream project, which legitimately has its own
+    # (smaller) count, and check what is left describes this one correctly.
+    ours = "\n".join(
+        line for line in readme.splitlines()
+        if "upstream" not in line.lower()
+    )
+
+    for wrong in range(6, 20):
+        if wrong == n:
+            continue
+        for form in (str(wrong), words.get(wrong, "\0")):
+            assert not re.search(rf"\b{form} models\b", ours, re.I), (
+                f"README says '{form} models' but there are {n}"
+            )
+            assert not re.search(rf"\ball {form} models\b", ours, re.I), (
+                f"README says 'all {form} models' but there are {n}"
+            )
+
+    # And the real count has to appear at least once, so the check cannot pass
+    # simply because every mention was deleted.
+    assert re.search(rf"\b({n}|{words[n]}) models\b", ours, re.I), (
+        f"README should state the model count ({n}) somewhere"
+    )

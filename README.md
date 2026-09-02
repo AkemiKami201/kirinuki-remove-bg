@@ -70,15 +70,16 @@ objects with holes — plus **BRIA RMBG-2.0**, for when you want maximum quality
 
 ## What this fork changes
 
-The upstream project shipped 6 models and classic alpha matting. This fork is
-tuned for photographing parts and products, where the hard part is not the
-subject but the gaps in it.
+The upstream project shipped 6 models and classic alpha matting. This fork adds
+the models and the refinement steps that matter when the hard part is not the
+subject but its edge — hair, mesh, and the gaps in it.
 
-**Five more models (11 total).** The important one is `birefnet-dis`, trained on
+**Six more models (12 total).** The important one is `birefnet-dis`, trained on
 DIS5K — a dataset built specifically for objects with holes, grilles and thin
 structures. On a bracket or a gear, the general-purpose models fill the gaps
 with subject; DIS keeps them open. Also added: `birefnet-massive`,
-`birefnet-hrsod`, `birefnet-cod` and `bria-rmbg` (BRIA RMBG-2.0).
+`birefnet-hrsod`, `birefnet-cod`, `bria-rmbg` (BRIA RMBG-2.0) and `u2netp`, the
+small one that fits a low-memory machine.
 
 **Edge refinement.** `vitmatte` replaces the model's hard mask with a real alpha
 channel predicted by a network, which is what fixes the "cut out with scissors"
@@ -212,6 +213,7 @@ needs running again.
 .venv/bin/python server.py batch ~/photos --bgcolor "#ffffff"  # flattened, metadata kept
 .venv/bin/python server.py batch ~/photos --only-mask          # alpha channels
 .venv/bin/python server.py batch ~/photos --overwrite          # redo everything
+.venv/bin/python server.py batch ~/photos --vitmatte --decontaminate  # cleaner edges
 ```
 
 A file that cannot be read is reported and the run continues.
@@ -423,10 +425,11 @@ there:** it costs ~2.6 GB whatever model it refines, which is four times what
 `u2netp` itself needs and enough to put the request out of reach.
 
 **Yes, the full BiRefNet models run on CPU on a 16 GB machine** — with ~8 GB
-free. They are tuned down from the ~9.2 GB onnxruntime uses by default: the CPU
-memory arena is disabled and execution is sequential on two threads, which
-costs a little speed for 33% less memory. Set `RBL_TUNE_MEMORY=0` to go back
-to the defaults.
+free. They are tuned down from the 9138 MB onnxruntime uses by default: the CPU
+memory arena is disabled and execution is sequential, measured at 7473 MB - an
+18% cut for roughly 20% more time. The thread count is left to onnxruntime;
+capping it saved no memory at all. Set `RBL_TUNE_MEMORY=0` to go back to the
+defaults.
 
 The cost is the network's intermediate activations — **not** your photo and not
 the weights. `birefnet-dis` peaked at 9.1 GB even with a 512x512 input, and
@@ -575,6 +578,9 @@ REMBG_PROVIDERS=CoreMLExecutionProvider,CPUExecutionProvider ./run.sh
 # Reject an image whose decoded size is over this many pixels, checked from the
 # header before decoding (default 120 MP — more than any real camera):
 RBL_MAX_IMAGE_PIXELS=200000000 ./run.sh
+
+# How often the idle-model evictor wakes up, in seconds (default 30):
+RBL_MODEL_EVICTOR_INTERVAL=60 ./run.sh
 ```
 
 For the `kirinuki` command:
