@@ -347,11 +347,16 @@ function buildGlobalSwatches() {
 function effectiveBg(job) { return job.bg != null ? job.bg : resultBg; }
 
 //  Edge refinement options
-function estimatePeakMb(model, vitmatte, decontaminate) {
+
+// Mirrors estimate_peak_mb() in server.py.
+function estimatePeakMb(model, vitmatte, decontaminate, alphaMatting) {
   const px = MAX_PROCESS_PX > 0 ? MAX_PROCESS_PX * MAX_PROCESS_PX : 3000 * 3000;
   const mp = Math.max(1, px / 1000000);
-  let mb = 260 + (PEAK_MB[model] || 2000) + mp * 320;
-  if (vitmatte) mb = Math.max(mb, 260 + 2500 + mp * 900);
+  const modelMb = PEAK_MB[model] || 2000;
+  const perMp = modelMb >= 1000 ? 320 : 120;
+  let mb = 260 + modelMb + mp * perMp;
+  if (vitmatte) mb = Math.max(mb, 260 + 2000 + mp * 250);
+  else if (alphaMatting) mb += mp * 500;
   if (decontaminate) mb += mp * 550;
   return mb;
 }
@@ -396,7 +401,9 @@ function updateMemoryWarning() {
   if (!el) return;
   const budget = memoryBudgetMb();
   if (budget == null || !selectedModel) { el.hidden = true; return; }
-  const need = estimatePeakMb(selectedModel, $("vm-enabled").checked, $("dc-enabled").checked);
+  const need = estimatePeakMb(
+    selectedModel, $("vm-enabled").checked, $("dc-enabled").checked, $("am-enabled").checked
+  );
   if (need <= budget) { el.hidden = true; return; }
   el.hidden = false;
   el.textContent = `Needs about ${(need / 1024).toFixed(1)} GB, but only `
@@ -416,7 +423,7 @@ function syncRefinementOptions() {
   amRow.classList.toggle("disabled", vm);
 }
 $("vm-enabled").addEventListener("change", () => { if ($("vm-enabled").checked) $("am-enabled").checked = false; syncRefinementOptions(); refreshMemoryWarning(); });
-$("am-enabled").addEventListener("change", syncRefinementOptions);
+$("am-enabled").addEventListener("change", () => { syncRefinementOptions(); refreshMemoryWarning(); });
 $("dc-enabled").addEventListener("change", refreshMemoryWarning);
 $("trim-enabled").addEventListener("change", updateMetadataNote);
 $("srvbg-enabled").addEventListener("change", updateMetadataNote);
