@@ -137,6 +137,14 @@ function fmtBytes(n) {
   return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
 }
 
+// Quotas are a share of free disk, so on a roomy machine they run to hundreds
+// of gigabytes and a real session sits far below one percent.
+function fmtPct(pct) {
+  if (pct >= 10) return `${Math.round(pct)}%`;
+  if (pct >= 0.1) return `${pct.toFixed(1)}%`;
+  return pct > 0 ? "<0.1%" : "0%";
+}
+
 let storageWarned = false;
 
 const STORAGE_BLOCKED_ERRORS = ["UnknownError", "SecurityError", "InvalidStateError"];
@@ -1028,11 +1036,11 @@ async function renderStorage() {
   if (!est) { foot.hidden = true; return; }
   const mb = est.usage / 1048576;
   const pct = est.quota ? Math.min(100, (est.usage / est.quota) * 100) : 0;
-  if (mb < 50 && pct < 60) { foot.hidden = true; return; }
+  if (mb < 250 && pct < 60) { foot.hidden = true; return; }
   const label = fmtBytes(est.usage);
   foot.hidden = false;
   foot.classList.toggle("warn", pct >= 80);
-  foot.innerHTML = `Saved results: ${label}${est.quota ? ` · ${Math.round(pct)}% of quota` : ""}${pct >= 80 ? " — delete old sessions" : ""}<div class="bar"><span style="width:${pct}%"></span></div>`;
+  foot.innerHTML = `Saved results: ${label}${est.quota ? ` · ${fmtPct(pct)} of quota` : ""}${pct >= 80 ? " — delete old sessions" : ""}<div class="bar"><span style="width:${pct}%"></span></div>`;
 }
 
 //  Compare models
