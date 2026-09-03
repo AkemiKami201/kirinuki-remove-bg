@@ -422,7 +422,7 @@
   .cell .placeholder { color: var(--text-faint); font-size: var(--fs-sm); }
   .cell .errmsg { color: var(--err); font-size: var(--fs-sm); text-align: center; padding: 0 var(--sp-4); display: flex; align-items: center; gap: var(--sp-2); }
 
-  .card-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); padding: var(--sp-3) var(--sp-4); flex-wrap: wrap; border-top: 1px solid var(--border); background: var(--panel); }
+  .card-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); padding: var(--sp-3) var(--sp-4); flex-wrap: wrap; border-top: 1px solid var(--border); background: var(--panel); content-visibility: visible; contain-intrinsic-size: none; }
   .card-foot .grp { display: flex; align-items: center; gap: var(--sp-2); }
   .card-foot .glbl { font-size: var(--fs-xs); color: var(--text-faint); font-weight: 500; }
   .card-foot select { padding: 5px var(--sp-3); font-size: var(--fs-sm); }

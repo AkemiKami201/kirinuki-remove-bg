@@ -637,6 +637,29 @@ def test_cards_skip_offscreen_rendering():
     )
 
 
+def test_card_footer_opts_out_of_content_visibility():
+    """A native <select> popup is a platform window tied to its element, and it
+    is dismissed whenever the browser re-runs the visibility check on the
+    subtree that holds it. Every card repaint during a queue run does exactly
+    that, so the model list on finished cards would not open by mouse -- while
+    the keyboard, which needs no popup, still worked. The footer holding the
+    selects must therefore render normally; the image cells above it keep the
+    optimisation."""
+    css = css_text()
+    card = css[css.index("  .card {"):]
+    card = card[: card.index("\n  }")]
+    assert "content-visibility" in card, "cards still skip work while off-screen"
+
+    foot = css[css.index("  .card-foot {"):]
+    foot = foot[: foot.index("}")]
+    assert "content-visibility: visible" in foot, (
+        "the footer's selects must not sit inside a skipped subtree"
+    )
+    assert "contain-intrinsic-size: none" in foot, (
+        "the placeholder size must be dropped along with the skipping"
+    )
+
+
 def test_cards_display_downscaled_previews():
     """A card shows an image at ~320px but held the 3000px original, so the
     browser rescaled several megapixels on every repaint. Seven results meant
