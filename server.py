@@ -20,7 +20,7 @@ Endpoints:
 - GET  /             -> UI (HTML)
 - POST /remove       -> Receives an image, returns a PNG with a transparent
                         background. Optional edge refinement: vitmatte,
-                        decontaminate, post_process_mask
+                        decontaminate, post_process_mask, harden_alpha
 - GET  /models       -> List of available models (with approx download sizes)
 - GET  /model_status -> Load state of a model (idle / loading / ready / error)
 - POST /warmup       -> Start loading a model in the background (non-blocking)
@@ -62,7 +62,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from PIL import Image
+from PIL import Image, ImageFilter
 from PIL.PngImagePlugin import PngInfo
 from rembg import new_session, remove
 from rembg.sessions import sessions_class
@@ -889,6 +889,49 @@ def fit_for_processing(img: Image.Image) -> tuple[Image.Image, tuple[int, int] |
     return small, (img.width, img.height)
 
 
+def feather_alpha_channel(img: Image.Image, radius: float) -> Image.Image:
+    """Soften the alpha edge by a sub-pixel blur, without moving the outline.
+
+    Hardening the alpha narrows the anti-aliased ramp that made the outline read
+    as smooth: on a transparent checkerboard nobody notices, but composited onto
+    a white catalogue background the edge turns visibly stepped once a viewer
+    zooms in. Blurring only the alpha widens that ramp back out. The radius
+    stays small on purpose - it has to survive the upscale to the source
+    resolution without eating the thin parts the hardening just recovered.
+    """
+    if radius <= 0:
+        return img
+    out = img.convert("RGBA")
+    out.putalpha(out.getchannel("A").filter(ImageFilter.GaussianBlur(radius)))
+    return out
+
+
+def harden_alpha_channel(img: Image.Image, low: int, high: int) -> Image.Image:
+    """Push mid-range alpha values towards fully opaque or fully clear.
+
+    Every session resizes to a 1024x1024 network input, so a structure thinner
+    than the source-to-input ratio never covers a whole input pixel: a spring
+    coil or a bolt thread lands at an alpha of 60-120 instead of 255 and
+    composites as a ghost, faint enough to read as missing. Remapping the band
+    between ``low`` and ``high`` onto the full range brings those parts back to
+    solid while keeping a one-pixel ramp at the boundary, so the edge does not
+    turn into stair-steps the way a plain threshold would.
+
+    This is the opposite trade from the "preserve soft edges" option other tools
+    offer, and it is destructive in the same way: genuinely semi-transparent
+    subjects (glass, a lens, smoke) go opaque. Meant for opaque hard-edged
+    parts, which is why it stays off unless asked for.
+    """
+    if low >= high:
+        raise ValueError("harden_alpha_low must be below harden_alpha_high")
+    span = high - low
+    lut = [0 if v <= low else 255 if v >= high else round((v - low) * 255 / span)
+           for v in range(256)]
+    out = img.convert("RGBA")
+    out.putalpha(out.getchannel("A").point(lut))
+    return out
+
+
 def compose_at_full_size(original: Image.Image, cutout: Image.Image) -> Image.Image:
     """Apply a mask computed at reduced size back onto the full-resolution image.
 
@@ -1018,6 +1061,10 @@ async def remove_background(
     vitmatte: bool = Form(False),
     decontaminate: bool = Form(False),
     post_process_mask: bool = Form(False),
+    harden_alpha: bool = Form(False),
+    harden_alpha_low: int = Form(10),
+    harden_alpha_high: int = Form(90),
+    feather: float = Form(1.5),
     bgcolor: str = Form(""),
     only_mask: bool = Form(False),
     transient: bool = Form(False),
@@ -1037,6 +1084,16 @@ async def remove_background(
     - ``decontaminate``: unmix the background colour left in the soft edge band.
       Removes the halo a plain cut-out keeps.
     - ``post_process_mask``: clean up speckle in the mask before compositing.
+    - ``harden_alpha``: remap partial alpha towards solid, so thin opaque parts
+      (springs, wire, threads) stop compositing as ghosts. Costs nothing and
+      needs no download, but flattens real semi-transparency, so leave it off
+      for glass or anything genuinely translucent. ``harden_alpha_low`` and
+      ``harden_alpha_high`` bound the remapped band: lower ``high`` if thin
+      parts are still faint, raise it if background speckle turns solid.
+      ``feather`` then blurs the hardened alpha by that radius, which restores
+      the smooth outline hardening costs - without it the edge reads as stepped
+      once the cut-out sits on a solid background and someone zooms in. Only
+      applies alongside ``harden_alpha``; set 0 to keep the hard edge.
 
     Output shape:
     - ``bgcolor``: composite the cut-out onto this colour here rather than in
@@ -1052,6 +1109,19 @@ async def remove_background(
             status_code=400,
             detail="Use either vitmatte or alpha_matting, not both: they are two "
                    "ways of doing the same edge refinement.",
+        )
+    if harden_alpha and not 0 <= harden_alpha_low < harden_alpha_high <= 255:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"harden_alpha_low ({harden_alpha_low}) must be below "
+                f"harden_alpha_high ({harden_alpha_high}), both within 0-255."
+            ),
+        )
+    if not 0 <= feather <= 10:
+        raise HTTPException(
+            status_code=400,
+            detail=f"feather ({feather}) must be between 0 and 10 pixels.",
         )
     if only_mask and bgcolor:
         raise HTTPException(
@@ -1096,6 +1166,8 @@ async def remove_background(
             ("alpha-matting", alpha_matting),
             ("decontaminate", decontaminate),
             ("post-process", post_process_mask),
+            (f"harden-alpha {harden_alpha_low}-{harden_alpha_high}"
+             + (f" feather {feather:g}" if feather > 0 else ""), harden_alpha),
         ) if on
     ]
 
@@ -1166,6 +1238,15 @@ async def remove_background(
                 decontaminate=decontaminate,
                 post_process_mask=post_process_mask,
             )
+            # Before the mask is scaled back up: the remap is what decides
+            # which pixels are solid, and running it at inference resolution
+            # keeps LANCZOS from smearing a hardened edge back into a ramp.
+            if harden_alpha:
+                out = await run_in_threadpool(
+                    harden_alpha_channel, out, harden_alpha_low, harden_alpha_high
+                )
+                if feather > 0:
+                    out = await run_in_threadpool(feather_alpha_channel, out, feather)
             if reduced_from:
                 out = await run_in_threadpool(compose_at_full_size, original, out)
             if only_mask:
@@ -1264,6 +1345,12 @@ def _batch_cli(args) -> int:
     ap.add_argument("--bgcolor", default="", help="flatten onto a colour, e.g. #ffffff")
     ap.add_argument("--vitmatte", action="store_true", help="learned edge refinement")
     ap.add_argument("--decontaminate", action="store_true", help="remove edge colour cast")
+    ap.add_argument("--harden-alpha", action="store_true",
+                    help="remap partial alpha towards solid (thin opaque parts)")
+    ap.add_argument("--harden-alpha-low", type=int, default=10, metavar="N")
+    ap.add_argument("--harden-alpha-high", type=int, default=90, metavar="N")
+    ap.add_argument("--feather", type=float, default=1.5, metavar="PX",
+                    help="soften the hardened edge by this radius (0 to disable)")
     ap.add_argument("--only-mask", action="store_true", help="write the alpha channel instead")
     ap.add_argument("--overwrite", action="store_true", help="redo files that already have a result")
     opts = ap.parse_args(args)
@@ -1289,6 +1376,13 @@ def _batch_cli(args) -> int:
             print(exc.detail)
             return 1
 
+    if opts.harden_alpha and not 0 <= opts.harden_alpha_low < opts.harden_alpha_high <= 255:
+        print("--harden-alpha-low must be below --harden-alpha-high, both within 0-255.")
+        return 1
+    if not 0 <= opts.feather <= 10:
+        print("--feather must be between 0 and 10 pixels.")
+        return 1
+
     suffix = "_mask" if opts.only_mask else "_nobg"
     print(f"{len(files)} image(s) -> {dst}  (model: {opts.model})")
     session = new_session(opts.model, sess_opts=_session_options(), providers=PROVIDERS)
@@ -1308,6 +1402,11 @@ def _batch_cli(args) -> int:
                     work, session=session,
                     vitmatte=opts.vitmatte, decontaminate=opts.decontaminate,
                 )
+                if opts.harden_alpha:
+                    out = harden_alpha_channel(
+                        out, opts.harden_alpha_low, opts.harden_alpha_high
+                    )
+                    out = feather_alpha_channel(out, opts.feather)
                 if reduced:
                     out = compose_at_full_size(img, out)
                 if opts.only_mask:

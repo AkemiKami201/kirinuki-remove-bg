@@ -472,19 +472,56 @@ async function refreshMemoryWarning() {
   updateMemoryWarning();
 }
 
+//  Refinement preferences
+const REFINE_KEY = "rmbg-refinements";
+const REFINE_CHECKS = ["vm-enabled", "am-enabled", "dc-enabled", "pp-enabled", "ha-enabled"];
+const REFINE_NUMS = ["am-fg", "am-bg", "am-erode", "ha-low", "ha-high", "ha-feather"];
+
+function saveRefinements() {
+  const state = {};
+  for (const id of REFINE_CHECKS) state[id] = $(id).checked;
+  for (const id of REFINE_NUMS) state[id] = $(id).value;
+  try { localStorage.setItem(REFINE_KEY, JSON.stringify(state)); }
+  catch (e) { warn("saving refinement options", e); }
+}
+
+function loadRefinements() {
+  let state;
+  try {
+    state = JSON.parse(localStorage.getItem(REFINE_KEY) || "null");
+  } catch (e) { warn("reading refinement options", e); return; }
+  if (!state || typeof state !== "object") return;
+  for (const id of REFINE_CHECKS) {
+    if (typeof state[id] === "boolean") $(id).checked = state[id];
+  }
+  for (const id of REFINE_NUMS) {
+    if (state[id] != null && state[id] !== "") $(id).value = state[id];
+  }
+  // A stored pair from an older build could break this rule, and the server
+  // rejects both at once.
+  if ($("vm-enabled").checked) $("am-enabled").checked = false;
+}
+
 function syncRefinementOptions() {
   const vm = $("vm-enabled").checked;
   const amRow = $("am-enabled").closest(".row");
   $("am-enabled").disabled = vm;
   ["am-fg", "am-bg", "am-erode"].forEach(id => { $(id).disabled = vm || !$("am-enabled").checked; });
   amRow.classList.toggle("disabled", vm);
+  const ha = $("ha-enabled").checked;
+  ["ha-low", "ha-high", "ha-feather"].forEach(id => { $(id).disabled = !ha; });
 }
 $("vm-enabled").addEventListener("change", () => { if ($("vm-enabled").checked) $("am-enabled").checked = false; syncRefinementOptions(); refreshMemoryWarning(); });
 $("am-enabled").addEventListener("change", () => { syncRefinementOptions(); refreshMemoryWarning(); });
 $("dc-enabled").addEventListener("change", refreshMemoryWarning);
+$("ha-enabled").addEventListener("change", syncRefinementOptions);
+for (const id of [...REFINE_CHECKS, ...REFINE_NUMS]) {
+  $(id).addEventListener("change", saveRefinements);
+}
 $("trim-enabled").addEventListener("change", updateMetadataNote);
 $("srvbg-enabled").addEventListener("change", updateMetadataNote);
 $("dl-format").addEventListener("change", updateMetadataNote);
+loadRefinements();
 syncRefinementOptions();
 updateMetadataNote();
 
@@ -562,6 +599,12 @@ async function runJob(job) {
   else if ($("am-enabled").checked) { fd.append("alpha_matting", "true"); fd.append("alpha_matting_foreground_threshold", $("am-fg").value); fd.append("alpha_matting_background_threshold", $("am-bg").value); fd.append("alpha_matting_erode_size", $("am-erode").value); }
   if ($("dc-enabled").checked) fd.append("decontaminate", "true");
   if ($("pp-enabled").checked) fd.append("post_process_mask", "true");
+  if ($("ha-enabled").checked) {
+    fd.append("harden_alpha", "true");
+    fd.append("harden_alpha_low", $("ha-low").value);
+    fd.append("harden_alpha_high", $("ha-high").value);
+    fd.append("feather", $("ha-feather").value);
+  }
   if ($("srvbg-enabled").checked) {
     const bg = effectiveBg(job);
     if (bg !== "checker") fd.append("bgcolor", bg);

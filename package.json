@@ -1,6 +1,6 @@
 {
   "name": "kirinuki",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Remove image backgrounds locally - FastAPI + rembg (BiRefNet/ISNet/BRIA), drag & drop web UI, 100% offline. Handles hair, mesh and thin structures.",
   "bin": {
     "kirinuki": "bin/cli.js",

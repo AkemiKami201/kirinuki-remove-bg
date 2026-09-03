@@ -100,6 +100,13 @@
         </div>
         <p class="opt-note">Lower the erode value (2-5) for parts with thin structures or narrow gaps: the default of 10 eats fine detail before refining.</p>
         <div class="row">
+          <label class="toggle"><input type="checkbox" id="ha-enabled" /> Solid edges for thin opaque parts (springs, wire, threads)</label>
+          <label>From <input type="number" id="ha-low" value="10" min="0" max="255" /></label>
+          <label>To <input type="number" id="ha-high" value="90" min="1" max="255" /></label>
+          <label>Soften <input type="number" id="ha-feather" value="1.5" min="0" max="10" step="0.5" /></label>
+        </div>
+        <p class="opt-note">Parts thinner than a pixel of the model's input never reach full opacity, so a spring coil comes out as a faint cloud. This pushes those part-transparent pixels back to solid. Lower "To" (around 75) if thin parts are still faint, raise it if bits of background turn solid. It flattens genuine transparency, so turn it off for glass, lenses or anything translucent. "Soften" then blurs the edge back to a smooth outline - without it the cut-out looks stepped on a solid background when zoomed in; raise it if the edge still looks hard, set 0 to keep it sharp.</p>
+        <div class="row">
           <label class="toggle"><input type="checkbox" id="trim-enabled" /> Trim to content on export (remove the empty margin)</label>
           <label>Padding <input type="number" id="trim-pad" value="0" min="0" max="200" /></label>
         </div>

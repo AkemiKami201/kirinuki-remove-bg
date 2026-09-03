@@ -7,6 +7,37 @@ This project is a fork of
 The upstream history up to v1.15.2 is not repeated here; this changelog starts
 at the point the fork diverged.
 
+## [1.1.0] - 2026-09-03
+
+### Added
+
+- **Solid edges for thin opaque parts.** Every model resizes to a 1024x1024
+  input, so a structure thinner than the source-to-input ratio never covers a
+  whole input pixel: on a large photo a thin wire comes back part-transparent
+  instead of solid, and composites as a ghost faint enough to read as missing,
+  while thicker parts of the same shot cut out cleanly. The new option remaps
+  that partial band onto the full range, which brings most of such a part back
+  to solid without measurably promoting any backdrop along with it. It flattens
+  real semi-transparency, so it stays off unless asked for, and should be left
+  off for glass or anything translucent.
+- **A softening radius alongside it.** Hardening narrows the anti-aliased ramp
+  that made an outline read as smooth - on the transparent checkerboard nobody
+  notices, but composited onto a white catalogue background the edge turns
+  visibly stepped once a viewer zooms in. Blurring the hardened alpha widens
+  that ramp back out: at the default radius the ramp recovers most of its width
+  for about two points of opacity. Set it to 0 to keep the hard edge.
+- Both are available on `POST /remove` (`harden_alpha`, `harden_alpha_low`,
+  `harden_alpha_high`, `feather`) and on `server.py batch` (`--harden-alpha`,
+  `--feather`).
+
+### Changed
+
+- **The edge refinement options are remembered between runs.** They reset on
+  every launch, which meant re-ticking them at the start of each session when a
+  whole catalogue needs the same treatment. They are per-machine settings, so
+  they are now stored in the browser next to the theme - an environment
+  variable would not have survived a desktop shortcut on Windows.
+
 ## [1.0.2] - 2026-09-02
 
 Bug fixes only, most of them in the interface. Several were reachable in normal

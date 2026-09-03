@@ -1259,3 +1259,154 @@ def test_readme_model_count_matches_the_code():
     assert re.search(rf"\b({n}|{words[n]}) models\b", ours, re.I), (
         f"README should state the model count ({n}) somewhere"
     )
+
+
+def test_harden_alpha_lifts_partial_values_to_solid():
+    """The whole point: a thin part lands at a partial alpha and composites as
+    a ghost, so the mid band has to come back up towards opaque."""
+    img = Image.new("RGBA", (5, 1), (200, 50, 50, 255))
+    img.putalpha(Image.frombytes("L", (5, 1), bytes([0, 20, 60, 120, 255])))
+
+    out = server.harden_alpha_channel(img, 25, 165)
+    alpha = list(out.getchannel("A").tobytes())
+
+    assert alpha[0] == 0 and alpha[1] == 0, "below the floor stays clear"
+    assert alpha[4] == 255, "already solid stays solid"
+    assert alpha[3] > 120, "a thin part's partial alpha must be lifted"
+    assert alpha[2] > 60
+    assert out.getpixel((0, 0))[:3] == (200, 50, 50), "colour must be untouched"
+
+
+def test_harden_alpha_keeps_a_ramp_between_the_bounds():
+    """A plain threshold would alias the edge; the band has to stay a gradient
+    so the outline still reads as smooth."""
+    img = Image.new("RGBA", (256, 1), (0, 0, 0, 255))
+    img.putalpha(Image.frombytes("L", (256, 1), bytes(range(256))))
+
+    alpha = list(server.harden_alpha_channel(img, 25, 165).getchannel("A").tobytes())
+
+    band = alpha[26:165]
+    assert band == sorted(band), "the remap must stay monotonic"
+    assert len(set(band)) > 1, "the band must remain a gradient, not a step"
+
+
+def test_harden_alpha_rejects_an_inverted_band():
+    with pytest.raises(ValueError):
+        server.harden_alpha_channel(Image.new("RGBA", (2, 2)), 200, 100)
+
+
+def test_remove_rejects_an_inverted_harden_alpha_band(client):
+    r = client.post(
+        "/remove",
+        files={"image": ("a.png", png_bytes(), "image/png")},
+        data={"harden_alpha": "true", "harden_alpha_low": "200",
+              "harden_alpha_high": "100"},
+    )
+    assert r.status_code == 400
+
+
+def test_harden_alpha_is_off_unless_asked_for(client, monkeypatch):
+    """It flattens real semi-transparency, so it must never apply by default."""
+    async def fake_ensure_session(model):
+        return object()
+
+    def fake_remove(im, **kw):
+        out = im.convert("RGBA")
+        out.putalpha(Image.new("L", out.size, 120))
+        return out
+
+    monkeypatch.setattr(server, "ensure_session", fake_ensure_session)
+    monkeypatch.setattr(server, "remove", fake_remove)
+
+    r = client.post(
+        "/remove",
+        files={"image": ("a.png", png_bytes(), "image/png")},
+        data={"only_mask": "true"},
+    )
+    assert r.status_code == 200
+    out = Image.open(io.BytesIO(r.content))
+    assert out.getextrema() == (120, 120), "a partial alpha must survive intact"
+
+
+def test_harden_alpha_applies_when_requested(client, monkeypatch):
+    async def fake_ensure_session(model):
+        return object()
+
+    def fake_remove(im, **kw):
+        out = im.convert("RGBA")
+        out.putalpha(Image.new("L", out.size, 120))
+        return out
+
+    monkeypatch.setattr(server, "ensure_session", fake_ensure_session)
+    monkeypatch.setattr(server, "remove", fake_remove)
+
+    r = client.post(
+        "/remove",
+        files={"image": ("a.png", png_bytes(), "image/png")},
+        data={"only_mask": "true", "harden_alpha": "true"},
+    )
+    assert r.status_code == 200
+    out = Image.open(io.BytesIO(r.content))
+    assert out.getextrema()[0] > 120, "the request asked for the mid band to lift"
+
+
+def test_feather_widens_the_edge_ramp():
+    """Hardening narrows the anti-aliased ramp; on a solid background that reads
+    as a stepped outline, so the blur has to put a gradient back."""
+    img = Image.new("RGBA", (40, 40), (0, 0, 0, 255))
+    alpha = Image.new("L", (40, 40), 0)
+    alpha.paste(255, (10, 10, 30, 30))
+    img.putalpha(alpha)
+
+    def band(im):
+        px = list(im.getchannel("A").tobytes())
+        return sum(1 for v in px if 10 < v < 245)
+
+    assert band(img) == 0, "the fixture starts with a hard step"
+    assert band(server.feather_alpha_channel(img, 1.5)) > 0
+
+
+def test_feather_of_zero_is_a_no_op():
+    img = Image.new("RGBA", (8, 8), (1, 2, 3, 200))
+    assert server.feather_alpha_channel(img, 0).tobytes() == img.tobytes()
+
+
+def test_feather_keeps_the_colour_channels():
+    img = Image.new("RGBA", (16, 16), (10, 200, 30, 255))
+    out = server.feather_alpha_channel(img, 2.0)
+    assert out.getpixel((8, 8))[:3] == (10, 200, 30)
+
+
+def test_remove_rejects_an_out_of_range_feather(client):
+    r = client.post(
+        "/remove",
+        files={"image": ("a.png", png_bytes(), "image/png")},
+        data={"harden_alpha": "true", "feather": "40"},
+    )
+    assert r.status_code == 400
+
+
+def test_feather_only_applies_alongside_hardening(client, monkeypatch):
+    """On its own it would blur every cut-out's edge, which is not what the
+    default is for."""
+    async def fake_ensure_session(model):
+        return object()
+
+    def fake_remove(im, **kw):
+        out = im.convert("RGBA")
+        a = Image.new("L", out.size, 0)
+        a.paste(255, (2, 2, out.size[0] - 2, out.size[1] - 2))
+        out.putalpha(a)
+        return out
+
+    monkeypatch.setattr(server, "ensure_session", fake_ensure_session)
+    monkeypatch.setattr(server, "remove", fake_remove)
+
+    r = client.post(
+        "/remove",
+        files={"image": ("a.png", png_bytes(), "image/png")},
+        data={"only_mask": "true", "feather": "3"},
+    )
+    assert r.status_code == 200
+    px = list(Image.open(io.BytesIO(r.content)).convert("L").tobytes())
+    assert all(v in (0, 255) for v in px), "no hardening means no blur either"
