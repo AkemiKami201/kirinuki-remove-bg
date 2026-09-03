@@ -7,6 +7,65 @@ This project is a fork of
 The upstream history up to v1.15.2 is not repeated here; this changelog starts
 at the point the fork diverged.
 
+## [1.0.2] - 2026-09-02
+
+Bug fixes only, most of them in the interface. Several were reachable in normal
+use and had no workaround.
+
+### Fixed
+
+- **The model dropdown on a card would not open while the queue was running.**
+  Cards use `content-visibility: auto` so off-screen ones skip layout, and a
+  native `<select>` popup is dismissed whenever the browser re-runs that check
+  on the subtree holding it - which every card refresh did. The keyboard still
+  worked, which is what gave it away. The card footer now opts out of the
+  optimisation; the image cells it was there for still skip work off-screen.
+- **The results list jumped back to the top while images were processed.**
+  Rendering removed and re-appended every card, discarding the scroll position,
+  and it ran five times per image. A single card is now swapped in place, and a
+  full rebuild is kept for the cases where the list really does change.
+- **The custom background colour never applied.** The colour picker fires
+  `input` continuously while open, and each event rebuilt the swatch row -
+  removing the `<input>` the picker was attached to and tearing it down on its
+  first event. The row now stays put while the picker streams, and the
+  committed value arrives on `change`. This also stops a write to IndexedDB on
+  every drag event; it now writes once, when the picker closes.
+- **The drop zone could be pushed off the screen** once about ten results were
+  listed, on a laptop-height window. A drag is only accepted over the drop zone
+  itself, so losing it removes the main way of adding an image with nothing
+  saying so. The panel is sized by its content again and caps at 65% of the work
+  area.
+- **The advanced options could not be reached on a 768px-high screen.**
+  Expanding edge refinement made the panel taller than the window, inside a body
+  set to `overflow: hidden`, so the last options were unreachable by any means.
+  The panel now scrolls on its own, and the results area keeps a 120px floor.
+- **The desktop app kept showing the previous release's interface.** The static
+  assets are served from fixed URLs with an ETag but no `Cache-Control`, so the
+  browser was free to reuse them without asking. Electron's cache is private to
+  the app and survives restarts, which made it stick there while `kirinuki web`
+  updated immediately. Responses now carry `no-cache, must-revalidate`, which
+  keeps the cache but requires a revalidation first.
+- **The Models page showed whatever was true when the app started.** The
+  Downloaded and In memory badges and the Free RAM and Delete buttons came from
+  a single fetch at boot, so a model downloaded during the session never
+  appeared, and one dropped by the idle evictor still showed as resident.
+  Entering the tab refetches, and a 15s poll runs while it is on screen.
+- **The memory warning disagreed with the server that enforces it.** The
+  browser's estimate used different constants from `estimate_peak_mb()`: a flat
+  per-megapixel cost, a ViTMatte budget nearly double the real one, and no
+  accounting for classic alpha matting at all. It warned that requests would be
+  refused when the server would have accepted them, which teaches people to
+  ignore the warning that matters.
+- **The storage figure read 0% while the megabytes climbed.** A browser grants
+  roughly 60% of the free disk, so a real session sits well under one percent -
+  673 MB against a 300 GB quota is 0.219%, which rounded to "0%". It now keeps a
+  decimal below 10% and shows "<0.1%" rather than "0%" whenever anything is
+  stored. The panel also waits until 250 MB instead of 50 MB before appearing.
+- **The splash screen ended in mojibake.** It is built as a `data:` URL, and one
+  without a declared charset is decoded as latin1, so the UTF-8 ellipsis in
+  "one moment…" came out as three characters. Both built-in screens now declare
+  `charset=utf-8`.
+
 ## [1.0.1] - 2026-09-01
 
 ### Changed
